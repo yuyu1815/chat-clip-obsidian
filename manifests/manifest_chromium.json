@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "ChatVault Clip — AI Chat to Obsidian",
+  "version": "0.1.0",
+  "description": "Save AI chat conversations from ChatGPT, Claude and more to your Obsidian vault.",
+  "action": {
+    "default_icon": "logo48.png",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "options_page": "options.html",
+  "permissions": ["activeTab", "storage", "clipboardWrite", "contextMenus"],
+  "host_permissions": [
+    "https://chat.openai.com/*",
+    "https://chatgpt.com/*",
+    "https://claude.ai/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://chat.openai.com/*", "https://chatgpt.com/*", "https://claude.ai/*"],
+      "js": ["contentScript.js"],
+      "css": ["contentScript.css"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "icons": {
+    "48": "logo48.png",
+    "128": "logo128.png"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}

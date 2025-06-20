@@ -1,0 +1,136 @@
+/* ChatVault Clip - Content Script Styles */
+
+/* Save button styles */
+.chatvault-save-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 6px;
+  border: none;
+  border-radius: 6px;
+  background-color: transparent;
+  color: var(--text-secondary, #6b7280);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  opacity: 0;
+  visibility: hidden;
+  position: relative;
+}
+
+/* Show button on hover of parent message */
+[data-testid^="conversation-turn-"]:hover .chatvault-save-btn,
+[data-testid="message-row"]:hover .chatvault-save-btn,
+/* Claude specific hover selectors */
+.group.relative:hover .chatvault-save-btn,
+[data-testid="user-message"]:hover .chatvault-save-btn,
+[data-is-streaming]:hover .chatvault-save-btn,
+div:has(> [data-testid="user-message"]):hover .chatvault-save-btn,
+.chatvault-save-btn:focus {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* Button hover state */
+.chatvault-save-btn:hover {
+  background-color: var(--surface-secondary, #f3f4f6);
+  color: var(--text-primary, #111827);
+}
+
+/* Button active state */
+.chatvault-save-btn:active {
+  transform: scale(0.95);
+}
+
+/* Success state */
+.chatvault-save-btn.chatvault-saved {
+  background-color: #10b981 !important;
+  color: white !important;
+}
+
+.chatvault-save-btn.chatvault-saved svg {
+  animation: checkmark 0.3s ease-in-out;
+}
+
+@keyframes checkmark {
+  0% { transform: scale(0.8); }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); }
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .chatvault-save-btn {
+    color: #9ca3af;
+  }
+  
+  .chatvault-save-btn:hover {
+    background-color: #374151;
+    color: #f3f4f6;
+  }
+}
+
+/* ChatGPT specific adjustments */
+.agent-turn .chatvault-save-btn,
+.assistant-turn .chatvault-save-btn {
+  margin-left: 8px;
+}
+
+/* Claude specific adjustments */
+.message-header .chatvault-save-btn {
+  margin-left: auto;
+  margin-right: 8px;
+}
+
+/* Accessibility */
+.chatvault-save-btn:focus {
+  outline: 2px solid var(--focus-ring-color, #3b82f6);
+  outline-offset: 2px;
+}
+
+/* Tooltip */
+.chatvault-save-btn::before {
+  content: "Save to Obsidian";
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%) translateY(-4px);
+  padding: 4px 8px;
+  background-color: var(--tooltip-bg, #1f2937);
+  color: var(--tooltip-text, #f3f4f6);
+  font-size: 12px;
+  border-radius: 4px;
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+  z-index: 1000;
+}
+
+.chatvault-save-btn:hover::before {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* Arrow for tooltip */
+.chatvault-save-btn::after {
+  content: "";
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  border: 4px solid transparent;
+  border-top-color: var(--tooltip-bg, #1f2937);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+  z-index: 1000;
+}
+
+.chatvault-save-btn:hover::after {
+  opacity: 1;
+  visibility: visible;
+}

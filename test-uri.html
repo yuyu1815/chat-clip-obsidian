@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Obsidian URI Test</title>
+</head>
+<body>
+    <h1>Obsidian URI テスト</h1>
+    
+    <h2>簡単なテスト用URI</h2>
+    <p>まず、シンプルなURIでテストしてみましょう：</p>
+    
+    <button onclick="testSimpleUri()">シンプルなテストファイルを作成</button>
+    
+    <h2>ChatVault URI</h2>
+    <p>問題のURIをテストします：</p>
+    
+    <button onclick="testChatVaultUri()">ChatVault URIをテスト</button>
+    
+    <h2>診断</h2>
+    <ul>
+        <li>Obsidianが起動しているか確認</li>
+        <li>Vault名「Obsidian Vault」が正しいか確認</li>
+        <li>URIプロトコルが有効か確認</li>
+    </ul>
+    
+    <script>
+        function testSimpleUri() {
+            const uri = "obsidian://new?vault=Obsidian%20Vault&file=test.md&content=Hello%20World";
+            console.log("Testing simple URI:", uri);
+            window.open(uri, '_blank');
+        }
+        
+        function testChatVaultUri() {
+            const uri = "obsidian://new?vault=Obsidian%20Vault&path=ChatVault%2FCHATGPT%2FWhisper_API_/2025-06-19_19-17-41_chatgpt_Whisper_API_.md&content=---%0Atitle%3A%20Test%0A---%0A%0ATest%20content";
+            console.log("Testing ChatVault URI:", uri);
+            window.open(uri, '_blank');
+        }
+    </script>
+</body>
+</html>
