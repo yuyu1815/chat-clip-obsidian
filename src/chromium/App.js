@@ -1,30 +1,23 @@
 /* global chrome */
 import "./App.css";
 import React, { useState, useEffect, useRef } from "react";
-import TextareaAutosize from "react-textarea-autosize";
 import ChatModeSelector from "./ChatModeSelector";
 import MarkdownPreview from "./MarkdownPreview";
 
 function App() {
   // Original state
   const [pageInfo, setPageInfo] = useState({ title: "", url: "" });
-  const [headerVisible, setHeaderVisible] = useState(true);
   const [title, setTitle] = useState("");
-  const [content, setContent] = useState("");
   const [saveButtonDisabled, setSaveButtonDisabled] = useState(true);
-  const [showRemoveLinkTooltip, setShowRemoveLinkTooltip] = useState(false);
   const [showHamburgerMenu, setShowHamburgerMenu] = useState(false);
-  const [showEditTitleIcon, setShowEditTitleIcon] = useState(false);
-  const [isTitleInFocus, setIsTitleInFocus] = useState(false);
 
   const [obsidianVault, setObsidianVault] = useState(null);
-  const [folderPath, setFolderPath] = useState(null);
-  const [noteContentFormat, setNoteContentFormat] = useState(null);
+  const [chatFolderPath, setChatFolderPath] = useState(null);
   const [errorMsg, setErrorMsg] = useState("");
   const [loading, setLoading] = useState(true);
 
   // New ChatVault state
-  const [mode, setMode] = useState('webpage');
+  const [mode, setMode] = useState('single');
   const [isOnChatPage, setIsOnChatPage] = useState(false);
   const [messageCount, setMessageCount] = useState(30);
   const [markdownContent, setMarkdownContent] = useState('');
@@ -35,13 +28,8 @@ function App() {
   const [notification, setNotification] = useState(null);
   const [darkMode, setDarkMode] = useState(false);
 
-  const titleInputRef = useRef();
-  const textAreaRef = useRef();
   const containerRef = useRef();
   const menuRef = useRef();
-
-  const removeLinkButtonRef = useRef(null);
-  const cancelButtonRef = useRef(null);
   const saveButtonRef = useRef(null);
   const hamburgerMenuButtonRef = useRef(null);
 
@@ -64,22 +52,15 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (title.trim() === "" && content.trim() === "" && !headerVisible && mode === 'webpage') {
+    if (errorMsg) {
       setSaveButtonDisabled(true);
-    } else if (errorMsg) {
-      setSaveButtonDisabled(true);
-    } else if (mode !== 'webpage' && !isOnChatPage) {
+    } else if (!isOnChatPage) {
       setSaveButtonDisabled(true);
     } else {
       setSaveButtonDisabled(false);
     }
-  }, [title, content, headerVisible, errorMsg, mode, isOnChatPage]);
+  }, [title, errorMsg, mode, isOnChatPage]);
 
-  useEffect(() => {
-    if (textAreaRef.current && mode === 'webpage') {
-      textAreaRef.current.focus();
-    }
-  }, [mode]);
 
   useEffect(() => {
     const getPageInfo = async () => {
@@ -119,7 +100,7 @@ function App() {
       try {
         const result = await new Promise((resolve) => {
           chrome.storage.sync.get(
-            ["obsidianVault", "folderPath", "noteContentFormat", "defaultMode", "showPreview"],
+            ["obsidianVault", "chatFolderPath", "defaultMode", "showPreview", "defaultMessageCount"],
             (result) => {
               resolve(result);
             }
@@ -128,13 +109,8 @@ function App() {
         if (result.obsidianVault) {
           setObsidianVault(result.obsidianVault);
         }
-        if (result.folderPath) {
-          setFolderPath(result.folderPath);
-        }
-        if (result.noteContentFormat) {
-          setNoteContentFormat(result.noteContentFormat);
-        } else {
-          setNoteContentFormat("{url}\n\n{content}");
+        if (result.chatFolderPath) {
+          setChatFolderPath(result.chatFolderPath);
         }
         if (result.defaultMode && isOnChatPage) {
           setMode(result.defaultMode);
@@ -169,20 +145,12 @@ function App() {
 
   // Generate markdown preview
   useEffect(() => {
-    if (mode === 'webpage') {
-      const date = new Date().toLocaleDateString("en-CA");
-      let preview = noteContentFormat
-        .replace("{url}", headerVisible ? pageInfo.url : "")
-        .replace("{title}", title)
-        .replace("{content}", content)
-        .replace("{date}", date);
-      setMarkdownContent(preview);
-    }
-  }, [title, content, headerVisible, noteContentFormat, pageInfo.url, mode]);
+    // Remove this since we don't have webpage mode anymore
+  }, []);
 
   // Generate chat preview content
   useEffect(() => {
-    if (mode !== 'webpage' && isOnChatPage) {
+    if (isOnChatPage) {
       const service = pageInfo.url.includes('chatgpt.com') ? 'ChatGPT' : 
                       pageInfo.url.includes('claude.ai') ? 'Claude' : 'Unknown';
       const date = new Date().toISOString().split('T')[0];
@@ -280,61 +248,12 @@ url: ${pageInfo.url}
   }
 
   const saveNote = async () => {
-    if (!obsidianVault || !folderPath) {
+    if (!obsidianVault || !chatFolderPath) {
       chrome.runtime.openOptionsPage();
       return;
     }
 
-    if (mode === 'webpage') {
-      // Original webpage save logic
-      if (title.length > 250) {
-        setErrorMsg("Title is too long");
-        return;
-      }
-
-      const date = new Date().toLocaleDateString("en-CA");
-      let newContent = noteContentFormat
-        .replace("{url}", headerVisible ? pageInfo.url : "")
-        .replace("{title}", title)
-        .replace("{content}", content)
-        .replace("{date}", date);
-
-      if (!headerVisible) {
-        const lines = newContent.split("\n");
-        const urlIndex = lines.findIndex((line) => line.trim() === "");
-        if (urlIndex !== -1) {
-          lines.splice(urlIndex, 1);
-        }
-        newContent = lines.join("\n");
-      }
-
-      if (content.trim() === "") {
-        const lines = newContent.split("\n");
-        const contentIndex = lines.findIndex((line) => line.trim() === "");
-        if (contentIndex !== -1) {
-          lines.splice(contentIndex, 1);
-        }
-        newContent = lines.join("\n");
-      }
-
-      const sanitizedTitle = sanitizeTitle(title);
-      const finalFolderPath = folderPath.replace("{title}", sanitizedTitle);
-
-      try {
-        const obsidianUri = `obsidian://new?vault=${encodeURIComponent(
-          obsidianVault
-        )}&file=${encodeURIComponent(
-          finalFolderPath
-        )}&content=${encodeURIComponent(newContent)}`;
-
-        window.open(obsidianUri, "_blank");
-        setTitle("");
-        setContent("");
-      } catch (error) {
-        console.error("Error adding note: ", error);
-      }
-    } else {
-      // Chat mode save - send message to content script
+    // Chat mode save - send message to content script
       chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
         const action = mode === 'single' ? 'saveActive' :
                       mode === 'selection' ? 'saveSelected' :
@@ -345,38 +264,56 @@ url: ${pageInfo.url}
           chrome.tabs.sendMessage(tabs[0].id, {
             action: action,
             count: mode === 'lastN' ? messageCount : undefined
+          }, (response) => {
+            if (chrome.runtime.lastError) {
+              setNotification({ 
+                type: 'error', 
+                message: 'Failed to save: ' + chrome.runtime.lastError.message 
+              });
+              return;
+            }
+            
+            if (response && response.success) {
+              // Add to save history
+              const historyItem = {
+                timestamp: new Date().toISOString(),
+                mode: mode,
+                service: pageInfo.url.includes('chatgpt.com') ? 'ChatGPT' : 'Claude',
+                title: title || `Chat - ${new Date().toLocaleDateString()}`
+              };
+              
+              const newHistory = [historyItem, ...saveHistory.slice(0, 4)];
+              setSaveHistory(newHistory);
+              chrome.storage.local.set({ saveHistory: newHistory });
+              
+              // Customize message based on method used
+              let message = 'Chat saved successfully!';
+              if (response.method === 'clipboard') {
+                message = 'Content copied! Opening Obsidian...';
+                // Show extended message
+                if (response.message) {
+                  alert(response.message);
+                }
+              }
+              
+              setNotification({ type: 'success', message: message });
+              
+              setTimeout(() => window.close(), response.method === 'clipboard' ? 2500 : 1500);
+            } else {
+              setNotification({ 
+                type: 'error', 
+                message: response?.error || 'Failed to save chat' 
+              });
+            }
           });
-          
-          // Add to save history
-          const historyItem = {
-            timestamp: new Date().toISOString(),
-            mode: mode,
-            service: pageInfo.url.includes('chatgpt.com') ? 'ChatGPT' : 'Claude',
-            title: title || `Chat - ${new Date().toLocaleDateString()}`
-          };
-          
-          const newHistory = [historyItem, ...saveHistory.slice(0, 4)];
-          setSaveHistory(newHistory);
-          chrome.storage.local.set({ saveHistory: newHistory });
-          
-          setNotification({ type: 'success', message: 'Chat saved successfully!' });
-          
-          setTimeout(() => window.close(), 1500);
         }
       });
-    }
   };
 
   const handleCancel = () => {
-    setTitle("");
-    setContent("");
     window.close();
   };
 
-  const selectAllInputText = () => {
-    titleInputRef.current.select();
-    setShowEditTitleIcon(false);
-  };
 
   const sanitizeTitle = (title) => {
     const invalidCharacterPattern = /[\\:*?"<>|/]/g;
@@ -426,111 +363,7 @@ url: ${pageInfo.url}
         />
       )}
       
-      {mode === 'webpage' && (
-        <>
-          {headerVisible && (
-            <div className="flex justify-between mb-1 border-b-2 border-zinc-700 bg-zinc-100">
-              <div className="text-xs p-2 truncate">{pageInfo.url}</div>
-              <button
-                ref={removeLinkButtonRef}
-                className="text-black rounded-full p-1 hover:bg-zinc-200 active:bg-zinc-300 relative"
-                onClick={() => setHeaderVisible(false)}
-                onMouseEnter={() => setShowRemoveLinkTooltip(true)}
-                onMouseLeave={() => setShowRemoveLinkTooltip(false)}
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                >
-                  <g
-                    fill="none"
-                    stroke="currentColor"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="1.5"
-                  >
-                    <path d="M14 11.998C14 9.506 11.683 7 8.857 7H7.143C4.303 7 2 9.238 2 11.998c0 2.378 1.71 4.368 4 4.873a5.3 5.3 0 0 0 1.143.124M16.857 7c.393 0 .775.043 1.143.124c2.29.505 4 2.495 4 4.874a4.92 4.92 0 0 1-1.634 3.653" />
-                    <path d="M10 11.998c0 2.491 2.317 4.997 5.143 4.997M18 22.243l2.121-2.122m0 0L22.243 18m-2.122 2.121L18 18m2.121 2.121l2.122 2.122" />
-                  </g>
-                </svg>
-              </button>
-              {showRemoveLinkTooltip && (
-                <div className="absolute top-8 right-0 text-xs bg-zinc-700 text-white p-2 rounded whitespace-nowrap z-10">
-                  Remove page link
-                </div>
-              )}
-            </div>
-          )}
-          
-          <div
-            className="relative flex items-center"
-            onMouseEnter={() => !isTitleInFocus && setShowEditTitleIcon(true)}
-            onMouseLeave={() => setShowEditTitleIcon(false)}
-          >
-            <input
-              ref={titleInputRef}
-              type="text"
-              name="title"
-              value={title}
-              onChange={handleTitleChange}
-              className="w-full p-2 mb-0 focus:border-none focus:ring-0 textarea-title font-semibold bg-zinc-50 text-base"
-              placeholder="Add title"
-              autoComplete="no-autocomplete-please"
-              maxLength={250}
-              onFocus={() => {
-                setIsTitleInFocus(true);
-                setShowEditTitleIcon(false);
-              }}
-              onBlur={() => {
-                setIsTitleInFocus(false);
-                setShowEditTitleIcon(false);
-              }}
-            />
-            {showEditTitleIcon && (
-              <div className="absolute right-0 transform translate-y-[-50%] cursor-pointer top-5">
-                <button
-                  onClick={selectAllInputText}
-                  className="text-black rounded-full p-1 hover:bg-zinc-200 active:bg-zinc-300"
-                >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      fill="currentColor"
-                      d="m19.3 8.925l-4.25-4.2l1.4-1.4q.575-.575 1.413-.575t1.412.575l1.4 1.4q.575.575.6 1.388t-.55 1.387L19.3 8.925ZM17.85 10.4L7.25 21H3v-4.25l10.6-10.6l4.25 4.25Z"
-                    />
-                  </svg>
-                </button>
-              </div>
-            )}
-          </div>
-          
-          {errorMsg && (
-            <div className="text-red-500 text-xs m-2 p-0.5 rounded-md bg-zinc-100">
-              {errorMsg}
-            </div>
-          )}
-          
-          <TextareaAutosize
-            ref={textAreaRef}
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            className="w-full p-2 focus:border-none focus:ring-0 textarea-content resize-none bg-zinc-50 text-sm"
-            placeholder="Take a brief note..."
-            minRows={4}
-            autoComplete="no-autocomplete-please"
-            maxLength={1500}
-          />
-        </>
-      )}
-      
-      {mode !== 'webpage' && (
-        <div className="p-4">
+      <div className="p-4">
           <div className="text-center">
             <div className="text-sm text-zinc-600 mb-2">
               {mode === 'single' && "Click 'Save' to capture the current message"}
@@ -559,13 +392,8 @@ url: ${pageInfo.url}
             </div>
           )}
         </div>
-      )}
       
-      {showPreview && mode === 'webpage' && (
-        <MarkdownPreview content={markdownContent} title={title} />
-      )}
-      
-      {showPreview && mode !== 'webpage' && (
+      {showPreview && (
         <MarkdownPreview content={chatPreviewContent} title={title || 'Chat Preview'} />
       )}
       
@@ -638,7 +466,6 @@ url: ${pageInfo.url}
         </div>
         <div className="text-sm">
           <button
-            ref={cancelButtonRef}
             className="py-1 px-2 mr-2 bg-zinc-50 rounded hover:bg-zinc-200 active:bg-zinc-300 font-semibold text-zinc-800"
             onClick={handleCancel}
           >
