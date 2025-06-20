@@ -6,15 +6,13 @@ import React from 'react';
 
 function ChatModeSelector({ mode, onModeChange, messageCount, onMessageCountChange, isOnChatPage }) {
   const modes = [
-    { value: 'webpage', label: 'Web Page', icon: '🌐', description: 'Save current webpage (classic mode)' },
     { value: 'single', label: 'Single Message', icon: '💬', description: 'Save one AI chat message' },
     { value: 'selection', label: 'Selected Text', icon: '✂️', description: 'Save highlighted text' },
     { value: 'lastN', label: 'Recent Messages', icon: '📋', description: 'Save last N messages' },
     { value: 'full', label: 'Full Thread', icon: '📚', description: 'Save entire conversation' }
   ];
 
-  const chatModes = ['single', 'selection', 'lastN', 'full'];
-  const availableModes = isOnChatPage ? modes : modes.filter(m => m.value === 'webpage');
+  const availableModes = isOnChatPage ? modes : [];
 
   return (
     <div className="border-b-2 border-zinc-700 bg-zinc-100 p-2">

@@ -90,7 +90,7 @@ console.log('[ChatVault] Content script loading...', window.location.href);
   }
 
   // Get message selectors based on service
-  function getMessageSelectors() {
+  function getSelectors() {
     if (service === 'chatgpt') {
       return {
         // More specific selectors for actual conversation messages only
@@ -341,7 +341,7 @@ console.log('[ChatVault] Content script loading...', window.location.href);
         console.log('[ChatVault] Message data:', messageData);
       } else {
         // Fallback to basic DOM extraction for other services
-        const selectors = getMessageSelectors();
+        const selectors = getSelectors();
         const contentElement = messageElement.querySelector(selectors.content);
         
         if (!contentElement) {
@@ -385,7 +385,13 @@ console.log('[ChatVault] Content script loading...', window.location.href);
             }, 2000);
           }
           console.log(`[ChatVault] Message saved via ${response.method}: ${response.filename}`);
-          alert(`メッセージがObsidianに保存されました！\nファイル名: ${response.filename}`);
+          if (response.method === 'clipboard') {
+            alert(`コンテンツがクリップボードにコピーされました！\n\nObsidianが開きます。新規ノート作成ダイアログで\nCtrl/Cmd+V でペーストしてください。\n\nファイル名: ${response.filename}\n\n※Advanced URIプラグインをインストールすると自動保存できます`);
+          } else if (response.method === 'advanced-uri') {
+            alert(`メッセージがObsidianに保存されました！\n（Advanced URI経由）\n\nファイル名: ${response.filename}`);
+          } else {
+            alert(`メッセージがObsidianに保存されました！\nファイル名: ${response.filename}`);
+          }
         } else {
           console.error('[ChatVault] Failed to save message:', response?.error);
           alert(`保存に失敗しました: ${response?.error || 'Unknown error'}`);
@@ -399,7 +405,7 @@ console.log('[ChatVault] Content script loading...', window.location.href);
 
   // Observe DOM changes and add buttons to new messages
   function observeMessages() {
-    const selectors = getMessageSelectors();
+    const selectors = getSelectors();
     if (!selectors) return;
 
     console.log(`[ChatVault] Starting message observation for ${service} with selectors:`, selectors);
@@ -555,7 +561,7 @@ console.log('[ChatVault] Content script loading...', window.location.href);
   // Handle message capture using basic DOM extraction
   function handleCaptureMessages(mode, count = null) {
     try {
-      const selectors = getMessageSelectors();
+      const selectors = getSelectors();
       const allMessages = Array.from(document.querySelectorAll(selectors.container))
         .map(msg => {
           const contentEl = msg.querySelector(selectors.content);
@@ -699,6 +705,17 @@ console.log('[ChatVault] Content script loading...', window.location.href);
         success: true,
         content: selection
       });
+    } else if (request.action === 'saveActive') {
+      // Find the active message (user can hover or click on it)
+      const messageElements = document.querySelectorAll(getSelectors().container);
+      if (messageElements.length > 0) {
+        // Get the last message as the "active" one
+        const lastMessage = messageElements[messageElements.length - 1];
+        handleSaveClick(lastMessage);
+        sendResponse({ success: true });
+      } else {
+        sendResponse({ success: false, error: 'No messages found on the page' });
+      }
     } else if (request.action === 'saveSelected') {
       const selectedContent = getSelectedContent();
       if (selectedContent && selectedContent.text) {
@@ -724,9 +741,37 @@ console.log('[ChatVault] Content script loading...', window.location.href);
         sendResponse({ success: false, error: 'No text selected. Please select some text first.' });
       }
     } else if (request.action === 'saveLastN') {
-      sendResponse(handleCaptureMessages('recent', request.count));
+      const result = handleCaptureMessages('recent', request.count);
+      if (result.success) {
+        // Send to background script for saving
+        chrome.runtime.sendMessage({
+          action: 'saveMultipleMessages',
+          messages: result.messages,
+          conversationTitle: result.title,
+          service: service
+        }, (response) => {
+          sendResponse(response);
+        });
+      } else {
+        sendResponse(result);
+      }
+      return true; // Keep channel open for async response
     } else if (request.action === 'saveAll') {
-      sendResponse(handleCaptureMessages('all'));
+      const result = handleCaptureMessages('all');
+      if (result.success) {
+        // Send to background script for saving
+        chrome.runtime.sendMessage({
+          action: 'saveMultipleMessages',
+          messages: result.messages,
+          conversationTitle: result.title,
+          service: service
+        }, (response) => {
+          sendResponse(response);
+        });
+      } else {
+        sendResponse(result);
+      }
+      return true; // Keep channel open for async response
     } else if (request.action === 'captureRecentMessages') {
       sendResponse(handleCaptureMessages('recent', request.count));
     } else if (request.action === 'captureAllMessages') {
@@ -751,7 +796,7 @@ console.log('[ChatVault] Content script loading...', window.location.href);
     let retryCount = 0;
     const maxRetries = 20; // Increased from 10 to 20
     const retryInterval = setInterval(() => {
-      const selectors = getMessageSelectors();
+      const selectors = getSelectors();
       const messages = document.querySelectorAll(selectors.container);
       const existingButtons = document.querySelectorAll('.chatvault-save-btn');
       
