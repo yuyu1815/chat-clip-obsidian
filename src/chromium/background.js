@@ -65,6 +65,75 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 });
 
+// Save via Chrome Downloads API using Data URL (compatible with Service Workers)
+async function saveViaDownloadAPI(content, filename, folderPath) {
+  try {
+    console.log('[ChatVault Background] 💾 Attempting to save via Downloads API...');
+    console.log('[ChatVault Background] 📁 Folder path:', folderPath);
+    console.log('[ChatVault Background] 📝 Filename:', filename);
+    console.log('[ChatVault Background] 📏 Content length:', content.length);
+    
+    // Service Workers don't support URL.createObjectURL() with Blobs
+    // Use Data URL instead for Manifest V3 compatibility
+    const base64Content = btoa(unescape(encodeURIComponent(content)));
+    const dataUrl = `data:text/markdown;charset=utf-8;base64,${base64Content}`;
+    
+    console.log('[ChatVault Background] 🔄 Converted to Data URL, length:', dataUrl.length);
+    
+    // Check if content is too large for Data URL (Chrome limit ~64MB)
+    const maxDataUrlSize = 64 * 1024 * 1024; // 64MB in bytes
+    if (dataUrl.length > maxDataUrlSize) {
+      throw new Error(`Content too large for Data URL (${dataUrl.length} bytes, max ${maxDataUrlSize})`);
+    }
+    
+    // Prepare download options
+    const downloadPath = folderPath ? `${folderPath}/${filename}` : filename;
+    const downloadOptions = {
+      url: dataUrl,
+      filename: downloadPath,
+      saveAs: false, // Auto-save without dialog (if user settings allow)
+      conflictAction: 'uniquify' // Automatically rename if file exists
+    };
+    
+    console.log('[ChatVault Background] 📥 Download path:', downloadPath);
+    console.log('[ChatVault Background] 🔗 Using Data URL method (Service Worker compatible)');
+    
+    // Start download
+    const downloadId = await chrome.downloads.download(downloadOptions);
+    console.log('[ChatVault Background] 🆔 Download started with ID:', downloadId);
+    
+    // Return promise that resolves when download completes
+    return new Promise((resolve, reject) => {
+      const downloadListener = (delta) => {
+        if (delta.id === downloadId) {
+          console.log('[ChatVault Background] 📊 Download state change:', delta);
+          
+          if (delta.state?.current === 'complete') {
+            console.log('[ChatVault Background] ✅ Download completed successfully with content');
+            chrome.downloads.onChanged.removeListener(downloadListener);
+            resolve({ success: true, downloadId: downloadId });
+          } else if (delta.state?.current === 'interrupted') {
+            console.error('[ChatVault Background] ❌ Download interrupted:', delta.error);
+            chrome.downloads.onChanged.removeListener(downloadListener);
+            reject(new Error(delta.error?.current || 'Download interrupted'));
+          }
+        }
+      };
+      
+      chrome.downloads.onChanged.addListener(downloadListener);
+      
+      // Timeout after 30 seconds
+      setTimeout(() => {
+        chrome.downloads.onChanged.removeListener(downloadListener);
+        reject(new Error('Download timeout - file may have been created but listener timed out'));
+      }, 30000);
+    });
+  } catch (error) {
+    console.error('[ChatVault Background] ❌ Download API error:', error);
+    throw error;
+  }
+}
+
 // Handle message saving to Obsidian
 async function handleSaveMessage(request, sender, sendResponse) {
   console.log('[ChatVault Background] 🚀 handleSaveMessage called with:', request);
@@ -136,6 +205,12 @@ source: text selection
     
     const fullContent = frontmatter + messageContent;
     
+    // Debug: Log the actual content being saved
+    console.log('[ChatVault Background] 🔍 DEBUG: fullContent sample:', fullContent.substring(0, 300) + '...');
+    console.log('[ChatVault Background] 🔍 DEBUG: fullContent length:', fullContent.length);
+    console.log('[ChatVault Background] 🔍 DEBUG: messageContent sample:', messageContent.substring(0, 200) + '...');
+    console.log('[ChatVault Background] 🔍 DEBUG: frontmatter:', frontmatter);
+    
     // Try Obsidian URI first  
     const fullFilePath = `${fullFolderPath}/${filename}`;
     
@@ -185,34 +260,176 @@ source: text selection
     
     // IMPORTANT: The native Obsidian URI scheme has a known issue where content parameter
     // doesn't work reliably - it creates the file but doesn't add content
-    // For now, we'll use clipboard as the most reliable method
-    const USE_CLIPBOARD_ALWAYS = true; // Force clipboard for reliability
+    // We'll try multiple methods in order of preference
+    const USE_DOWNLOADS_API = true; // Try Downloads API first for better UX
     
     console.log('[ChatVault Background] 🔍 URI method check:', {
       uriLength: obsidianUri.length,
-      forceClipboard: USE_CLIPBOARD_ALWAYS,
+      useDownloadsAPI: USE_DOWNLOADS_API,
       reason: 'Native Obsidian URI content parameter is unreliable'
     });
     
     // Try Advanced URI plugin format first (if user has it installed)
     // Try both methods: with base64 and without
-    const base64Content = btoa(unescape(encodeURIComponent(processedContent)));
+    const base64ContentForAdvanced = btoa(unescape(encodeURIComponent(processedContent)));
     
     // Method 1: Use 'text' parameter (some versions prefer this)
     const advancedUriText = `obsidian://advanced-uri?vault=${encodedVault}&filepath=${encodeURIComponent(fullFilePath)}&text=${encodedContent}&mode=new`;
     
     // Method 2: Use 'data' parameter with base64
-    const advancedUriData = `obsidian://advanced-uri?vault=${encodedVault}&filepath=${encodeURIComponent(fullFilePath)}&data=${base64Content}&mode=new`;
+    const advancedUriData = `obsidian://advanced-uri?vault=${encodedVault}&filepath=${encodeURIComponent(fullFilePath)}&data=${base64ContentForAdvanced}&mode=new`;
     
-    // Choose shorter URI or text-based one
-    const advancedUri = advancedUriText.length < advancedUriData.length ? advancedUriText : advancedUriData;
-    const uriMethod = advancedUriText.length < advancedUriData.length ? 'text' : 'data';
+    // Prefer text method over base64 data method (better compatibility)
+    const advancedUri = advancedUriText;
+    const uriMethod = 'text';
     console.log('[ChatVault Background] 🎆 Advanced URI format (requires plugin):', advancedUri.substring(0, 200) + '...');
     console.log('[ChatVault Background] 📊 Advanced URI length:', advancedUri.length);
     console.log('[ChatVault Background] 🔧 Advanced URI method:', uriMethod);
     
-    // First, let's try Advanced URI if it's not too long
+    // Save method selection based on user preferences and content size
     const ADVANCED_URI_LIMIT = 30000; // Advanced URI can handle longer URLs
+    const URI_LENGTH_LIMIT = 8000; // Standard URI limit
+    
+    // Get user preferences for save method
+    const savePreferences = await new Promise((resolve) => {
+      chrome.storage.sync.get(['saveMethod', 'downloadsFolder'], (prefs) => {
+        resolve({
+          method: prefs.saveMethod || 'advanced-uri', // advanced-uri (default), auto, downloads, clipboard
+          downloadsFolder: prefs.downloadsFolder || 'ChatVault'
+        });
+      });
+    });
+    
+    console.log('[ChatVault Background] 💾 Save preferences:', savePreferences);
+    
+    // Define Advanced URI clipboard function
+    const tryAdvancedUriClipboard = async () => {
+      console.log('[ChatVault Background] 🎯 Attempting Advanced URI with clipboard=true...');
+      
+      // First copy to clipboard
+      const tabId = sender.tab?.id;
+      if (!tabId) {
+        throw new Error('No valid tab ID for clipboard operation');
+      }
+      
+      await new Promise((resolve, reject) => {
+        chrome.tabs.sendMessage(tabId, {
+          action: 'copyToClipboard',
+          content: fullContent // Use fullContent instead of processedContent
+        }, (response) => {
+          if (chrome.runtime.lastError) {
+            reject(chrome.runtime.lastError);
+          } else {
+            resolve(response);
+          }
+        });
+      });
+      
+      // Create Advanced URI with clipboard=true
+      const advancedUriClipboard = `obsidian://advanced-uri?vault=${encodedVault}&filepath=${encodeURIComponent(fullFilePath)}&clipboard=true&mode=new`;
+      console.log('[ChatVault Background] 🔗 Advanced URI (clipboard):', advancedUriClipboard);
+      
+      // Open the URI
+      chrome.tabs.create({ url: advancedUriClipboard }, (tab) => {
+        if (chrome.runtime.lastError) {
+          throw chrome.runtime.lastError;
+        }
+        
+        // Close tab after delay
+        if (tab?.id) {
+          setTimeout(() => {
+            chrome.tabs.remove(tab.id, () => {
+              if (chrome.runtime.lastError) {
+                console.error('[ChatVault Background] Tab close error:', chrome.runtime.lastError.message);
+              }
+            });
+          }, 3000);
+        }
+        
+        sendResponse({
+          success: true,
+          method: 'advanced-uri-clipboard',
+          message: `Saved to Obsidian via Advanced URI plugin (clipboard method)`,
+          filename: filename
+        });
+      });
+    };
+    
+    // Try Advanced URI first (for direct Obsidian saving)
+    if (savePreferences.method === 'advanced-uri' || savePreferences.method === 'auto') {
+      // First try clipboard method for Advanced URI (most reliable for content)
+      try {
+        await tryAdvancedUriClipboard();
+        return;
+      } catch (error) {
+        console.error('[ChatVault Background] ⚠️ Advanced URI clipboard method failed:', error);
+      }
+      
+      // Fallback: check with regular text parameter if content is small enough
+      if (advancedUri.length < ADVANCED_URI_LIMIT && encodedContent.length < URI_LENGTH_LIMIT) {
+        console.log('[ChatVault Background] 🚀 Trying Advanced URI with direct text content...');
+        
+        try {
+          await new Promise((resolve, reject) => {
+            chrome.tabs.create({ url: advancedUri }, (tab) => {
+              if (chrome.runtime.lastError) {
+                reject(chrome.runtime.lastError);
+              } else {
+                // Close tab after delay
+                if (tab?.id) {
+                  setTimeout(() => {
+                    chrome.tabs.remove(tab.id, () => {
+                      if (chrome.runtime.lastError) {
+                        console.error('[ChatVault Background] Tab close error:', chrome.runtime.lastError.message);
+                      }
+                    });
+                  }, 3000);
+                }
+                
+                sendResponse({
+                  success: true,
+                  method: 'advanced-uri',
+                  message: `Saved to Obsidian via Advanced URI plugin (${uriMethod} method)`,
+                  filename: filename
+                });
+                resolve();
+              }
+            });
+          });
+          return;
+        } catch (error) {
+          console.error('[ChatVault Background] ⚠️ Advanced URI with content failed:', error);
+        }
+      }
+    }
+    
+    // Try Downloads API as fallback (saves to Downloads folder)
+    if (savePreferences.method === 'auto' || savePreferences.method === 'downloads') {
+      try {
+        console.log('[ChatVault Background] 🎯 Attempting Downloads API method (fallback)...');
+        const downloadResult = await saveViaDownloadAPI(
+          fullContent, // Use full content including frontmatter
+          filename,
+          `${savePreferences.downloadsFolder}/${service.toUpperCase()}`
+        );
+        
+        if (downloadResult.success) {
+          console.log('[ChatVault Background] ✅ Successfully saved via Downloads API');
+          sendResponse({
+            success: true,
+            method: 'downloads',
+            message: `Saved to Downloads folder: ${savePreferences.downloadsFolder}/${service.toUpperCase()}/${filename}\n\nNote: File saved to Downloads folder. Move to your Obsidian vault manually.`,
+            filename: filename,
+            downloadId: downloadResult.downloadId,
+            path: `${savePreferences.downloadsFolder}/${service.toUpperCase()}/${filename}`
+          });
+          return;
+        }
+      } catch (error) {
+        console.error('[ChatVault Background] ⚠️ Downloads API failed, trying next method:', error);
+        // Continue to next method
+      }
+    }
     
     // First check if Advanced URI plugin might be installed by trying a simple test
     const testAdvancedUri = `obsidian://advanced-uri?vault=${encodedVault}&filepath=test.md&text=test&mode=overwrite`;
@@ -325,10 +542,9 @@ source: text selection
       });
     };
     
-    // Use clipboard if content is too long
-    if (USE_CLIPBOARD_ALWAYS || obsidianUri.length > 2000) {
-      fallbackToClipboard();
-    } else {
+    // Final fallback: clipboard method
+    console.log('[ChatVault Background] 📋 Using final fallback: clipboard method');
+    fallbackToClipboard();
       // This path is now unlikely to be reached due to USE_CLIPBOARD_ALWAYS flag
       // But keeping it for future when Obsidian fixes the content parameter issue
       console.log('[ChatVault Background] ⚠️ WARNING: Using native URI method - content may not be saved!');
@@ -442,13 +658,6 @@ source: text selection
       });
       
       console.log('[ChatVault Background] ✅ Success! Sending positive response');
-      sendResponse({ 
-        success: true, 
-        method: 'uri',
-        message: 'Saved to Obsidian via URI',
-        filename: filename
-      });
-    }
     
   } catch (error) {
     console.error('[ChatVault Background] ❌ Error saving message:', error);
