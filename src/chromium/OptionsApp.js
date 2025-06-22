@@ -18,6 +18,10 @@ const OptionsApp = () => {
   const [showPreview, setShowPreview] = useState(true);
   const [defaultMessageCount, setDefaultMessageCount] = useState(30);
   const [autoTagging, setAutoTagging] = useState(true);
+  
+  // Save method settings  
+  const [saveMethod, setSaveMethod] = useState("advanced-uri");
+  const [downloadsFolder, setDownloadsFolder] = useState("ChatVault");
 
   const defaultNoteContentFormat = "{url}\n\n{content}";
 
@@ -39,7 +43,9 @@ const OptionsApp = () => {
         "chatNoteFormat",
         "showPreview",
         "defaultMessageCount",
-        "autoTagging"
+        "autoTagging",
+        "saveMethod",
+        "downloadsFolder"
       ],
       (result) => {
         console.log('[ChatVault Options] 📞 Loaded settings:', result);
@@ -79,6 +85,12 @@ const OptionsApp = () => {
         }
         if (result.autoTagging !== undefined) {
           setAutoTagging(result.autoTagging);
+        }
+        if (result.saveMethod) {
+          setSaveMethod(result.saveMethod);
+        }
+        if (result.downloadsFolder) {
+          setDownloadsFolder(result.downloadsFolder);
         }
       }
     );
@@ -138,7 +150,9 @@ const OptionsApp = () => {
         chatNoteFormat: chatNoteFormat,
         showPreview: showPreview,
         defaultMessageCount: defaultMessageCount,
-        autoTagging: autoTagging
+        autoTagging: autoTagging,
+        saveMethod: saveMethod,
+        downloadsFolder: downloadsFolder.trim() || "ChatVault"
       },
       () => {
         if (chrome.runtime.lastError) {
@@ -293,6 +307,52 @@ const OptionsApp = () => {
               onChange={(e) => setChatFolderPath(e.target.value)}
             />
           </div>
+
+          <div className="my-6">
+            <label className="text-white text-lg">
+              Save Method{" "}
+              <span className="text-gray-500 text-base">
+                ( Choose how to save files to Obsidian )
+              </span>
+            </label>
+            <select
+              className="w-full px-4 py-2 mt-2 rounded-md bg-zinc-700 text-white text-lg"
+              value={saveMethod}
+              onChange={(e) => setSaveMethod(e.target.value)}
+            >
+              <option value="auto">Auto (Try all methods)</option>
+              <option value="downloads">Downloads API (Recommended)</option>
+              <option value="advanced-uri">Advanced URI Plugin</option>
+              <option value="clipboard">Clipboard (Manual paste)</option>
+            </select>
+            <p className="text-gray-400 mt-2 text-sm">
+              {saveMethod === "downloads" ? "Files will be saved to your Downloads folder. You can then move them to your Obsidian vault." : 
+               saveMethod === "advanced-uri" ? "Requires the Advanced URI plugin to be installed in Obsidian." :
+               saveMethod === "clipboard" ? "Content will be copied to clipboard. You'll need to paste manually in Obsidian." :
+               saveMethod === "auto" ? "Tries Downloads API first, then Advanced URI, then falls back to clipboard." : ""}
+            </p>
+          </div>
+
+          {(saveMethod === "downloads" || saveMethod === "auto") && (
+            <div className="my-6">
+              <label className="text-white text-lg">
+                Downloads Subfolder{" "}
+                <span className="text-gray-500 text-base">
+                  ( Subfolder in Downloads directory for saved files )
+                </span>
+              </label>
+              <input
+                className="w-full px-4 py-2 mt-2 rounded-md bg-zinc-700 text-white text-lg"
+                type="text"
+                placeholder="ChatVault"
+                value={downloadsFolder}
+                onChange={(e) => setDownloadsFolder(e.target.value)}
+              />
+              <p className="text-gray-400 mt-2 text-sm">
+                Files will be saved to: Downloads/{downloadsFolder}/{'{service}'}/{'{filename}'}
+              </p>
+            </div>
+          )}
 
           <div className="my-6">
             <label className="text-white text-lg">
