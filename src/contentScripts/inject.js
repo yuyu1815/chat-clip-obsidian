@@ -1,6 +1,8 @@
 // Content script for ChatVault Clip
 // This script is injected into ChatGPT and Claude pages to add save buttons
 
+import ClaudeService from '../services/claude.js';
+
 console.log('[ChatVault] Content script loading...', window.location.href);
 
 (function() {
@@ -38,6 +40,13 @@ console.log('[ChatVault] Content script loading...', window.location.href);
   if (!service) {
     console.log('[ChatVault] No supported service detected, exiting');
     return;
+  }
+  
+  // Initialize Claude service if needed
+  let claudeService = null;
+  if (service === 'claude') {
+    claudeService = new ClaudeService();
+    console.log('[ChatVault] Claude service initialized');
   }
   
   // Rate limiting for DOM operations
@@ -292,48 +301,22 @@ console.log('[ChatVault] Content script loading...', window.location.href);
         };
         
         console.log('[ChatVault] 📦 Prepared message data:', messageData);
-      } else if (service === 'claude') {
-        // Claude用のメッセージ抽出
-        console.log('[ChatVault] Extracting Claude message from:', messageElement);
+      } else if (service === 'claude' && claudeService) {
+        // Claude用のメッセージ抽出（ClaudeServiceを使用）
+        console.log('[ChatVault] Extracting Claude message using ClaudeService');
         
-        let contentElement;
-        let speaker;
-        
-        if (messageElement.matches('[data-testid="user-message"]')) {
-          // ユーザーメッセージの場合
-          contentElement = messageElement.querySelector('.font-user-message') || messageElement;
-          speaker = 'User';
-        } else if (messageElement.matches('[data-is-streaming]')) {
-          // アシスタントメッセージの場合
-          contentElement = messageElement.querySelector('.font-claude-message');
-          speaker = 'Assistant';
-        } else {
-          throw new Error('Unknown message type');
+        const extractedMessage = claudeService.extractSingleMessage(messageElement);
+        if (!extractedMessage) {
+          throw new Error('Failed to extract message');
         }
         
-        if (!contentElement) {
-          throw new Error('Could not find message content');
-        }
-        
-        // ボタンを一時的に削除してコンテンツを取得
-        const tempButton = contentElement.querySelector('.chatvault-save-btn');
-        if (tempButton) {
-          tempButton.remove();
-        }
-        
-        const htmlContent = contentElement.innerHTML;
-        
-        // ボタンを戻す
-        if (tempButton && contentElement.querySelector('p:last-child')) {
-          contentElement.querySelector('p:last-child').appendChild(tempButton);
-        } else if (tempButton) {
-          contentElement.appendChild(tempButton);
-        }
+        const conversationTitle = claudeService.getConversationTitle();
+        const role = extractedMessage.role === 'user' ? 'User' : 'Assistant';
         
         messageData = {
-          messageContent: `### ${speaker}\n\n${htmlContent}`,
+          messageContent: `### ${role}\n\n${extractedMessage.content}`,
           messageType: 'single',
-          conversationTitle: document.title.replace(' | Claude', '').replace(' - Claude', ''),
+          conversationTitle: conversationTitle,
           service: service
         };
         
@@ -567,30 +550,65 @@ console.log('[ChatVault] Content script loading...', window.location.href);
     };
   }
 
-  // Handle message capture using basic DOM extraction
+  // Handle message capture using service-specific extraction
   function handleCaptureMessages(mode, count = null) {
     try {
-      const selectors = getSelectors();
-      const allMessages = Array.from(document.querySelectorAll(selectors.container))
-        .map(msg => {
-          const contentEl = msg.querySelector(selectors.content);
-          const isUser = msg.matches(selectors.userMessage);
-          return {
-            speaker: isUser ? 'User' : 'Assistant',
-            content: contentEl ? contentEl.innerHTML : ''
-          };
-        });
-      
-      let messages = allMessages;
-      if (mode === 'recent' && count) {
-        messages = allMessages.slice(-count);
+      if (service === 'claude' && claudeService) {
+        // Claude専用の抽出ロジック
+        let messages = [];
+        let title = '';
+        
+        switch (mode) {
+          case 'all':
+            messages = claudeService.extractAllMessages();
+            break;
+          case 'recent':
+            messages = claudeService.extractLastNMessages(count || 30);
+            break;
+          case 'selected':
+            messages = claudeService.extractSelectedMessages();
+            break;
+          default:
+            throw new Error('Invalid capture mode: ' + mode);
+        }
+        
+        title = claudeService.getConversationTitle();
+        
+        // メッセージをMarkdown形式に変換
+        const formattedMessages = messages.map(msg => ({
+          speaker: msg.role === 'user' ? 'User' : 'Assistant',
+          content: msg.content
+        }));
+        
+        return {
+          success: true,
+          messages: formattedMessages,
+          title: title
+        };
+      } else {
+        // ChatGPT用の既存のロジック
+        const selectors = getSelectors();
+        const allMessages = Array.from(document.querySelectorAll(selectors.container))
+          .map(msg => {
+            const contentEl = msg.querySelector(selectors.content);
+            const isUser = msg.matches(selectors.userMessage);
+            return {
+              speaker: isUser ? 'User' : 'Assistant',
+              content: contentEl ? contentEl.innerHTML : ''
+            };
+          });
+        
+        let messages = allMessages;
+        if (mode === 'recent' && count) {
+          messages = allMessages.slice(-count);
+        }
+        
+        return {
+          success: true,
+          messages: messages,
+          title: document.title.replace(' | Claude', '').replace(' - ChatGPT', '').replace(' | ChatGPT', '')
+        };
       }
-      
-      return {
-        success: true,
-        messages: messages,
-        title: document.title.replace(' | Claude', '').replace(' - ChatGPT', '').replace(' | ChatGPT', '')
-      };
     } catch (error) {
       console.error('Error capturing messages:', error);
       return {
@@ -810,28 +828,76 @@ console.log('[ChatVault] Content script loading...', window.location.href);
         sendResponse({ success: false, error: 'No messages found on the page' });
       }
     } else if (request.action === 'saveSelected') {
-      const selectedContent = getSelectedContent();
-      if (selectedContent && selectedContent.text) {
-        // Send selected content to background script
-        chrome.runtime.sendMessage({
-          action: 'saveSingleMessage',
-          service: service,
-          content: selectedContent.text,
-          html: selectedContent.html,
-          metadata: {
-            type: 'selection',
-            url: window.location.href,
-            title: document.title,
-            timestamp: new Date().toISOString(),
-            selectionInfo: selectedContent.range
+      if (service === 'claude' && claudeService) {
+        // Claudeの場合は選択範囲内のメッセージを取得
+        const selectedMessages = claudeService.extractSelectedMessages();
+        if (selectedMessages.length > 0) {
+          const markdown = claudeService.messagesToMarkdown(selectedMessages);
+          const title = claudeService.generateTitle(selectedMessages);
+          
+          chrome.runtime.sendMessage({
+            action: 'saveMultipleMessages',
+            messages: selectedMessages.map(msg => ({
+              speaker: msg.role === 'user' ? 'User' : 'Assistant',
+              content: msg.content
+            })),
+            conversationTitle: title,
+            service: service,
+            messageType: 'selection'
+          }, (response) => {
+            sendResponse(response);
+          });
+          return true; // Keep channel open for async response
+        } else {
+          // 通常のテキスト選択処理
+          const selectedContent = getSelectedContent();
+          if (selectedContent && selectedContent.text) {
+            chrome.runtime.sendMessage({
+              action: 'saveSingleMessage',
+              service: service,
+              messageContent: `### Selection\n\n${selectedContent.text}`,
+              messageType: 'selection',
+              conversationTitle: document.title.replace(' | Claude', '').replace(' - Claude', ''),
+              metadata: {
+                type: 'selection',
+                url: window.location.href,
+                title: document.title,
+                timestamp: new Date().toISOString(),
+                selectionInfo: selectedContent.range
+              }
+            }, (response) => {
+              sendResponse(response);
+            });
+            return true;
+          } else {
+            enableSelectionMode();
+            sendResponse({ success: false, error: 'No text selected. Please select some text first.' });
           }
-        });
-        
-        disableSelectionMode();
-        sendResponse({ success: true, content: selectedContent.text });
+        }
       } else {
-        enableSelectionMode();
-        sendResponse({ success: false, error: 'No text selected. Please select some text first.' });
+        const selectedContent = getSelectedContent();
+        if (selectedContent && selectedContent.text) {
+          // Send selected content to background script
+          chrome.runtime.sendMessage({
+            action: 'saveSingleMessage',
+            service: service,
+            content: selectedContent.text,
+            html: selectedContent.html,
+            metadata: {
+              type: 'selection',
+              url: window.location.href,
+              title: document.title,
+              timestamp: new Date().toISOString(),
+              selectionInfo: selectedContent.range
+            }
+          });
+          
+          disableSelectionMode();
+          sendResponse({ success: true, content: selectedContent.text });
+        } else {
+          enableSelectionMode();
+          sendResponse({ success: false, error: 'No text selected. Please select some text first.' });
+        }
       }
     } else if (request.action === 'saveLastN') {
       const result = handleCaptureMessages('recent', request.count);
@@ -841,7 +907,9 @@ console.log('[ChatVault] Content script loading...', window.location.href);
           action: 'saveMultipleMessages',
           messages: result.messages,
           conversationTitle: result.title,
-          service: service
+          service: service,
+          messageType: 'recent',
+          count: request.count
         }, (response) => {
           sendResponse(response);
         });
@@ -852,12 +920,30 @@ console.log('[ChatVault] Content script loading...', window.location.href);
     } else if (request.action === 'saveAll') {
       const result = handleCaptureMessages('all');
       if (result.success) {
+        // メッセージが長すぎる場合の処理
+        let processedMessages = result.messages;
+        if (service === 'claude' && claudeService) {
+          // 長文メッセージを分割
+          processedMessages = result.messages.map(msg => {
+            const splitContent = claudeService.splitLongMessage(msg.content);
+            if (splitContent.length > 1) {
+              // 分割されたメッセージを複数のメッセージとして扱う
+              return splitContent.map((content, index) => ({
+                speaker: msg.speaker + ` (Part ${index + 1}/${splitContent.length})`,
+                content: content
+              }));
+            }
+            return msg;
+          }).flat();
+        }
+        
         // Send to background script for saving
         chrome.runtime.sendMessage({
           action: 'saveMultipleMessages',
-          messages: result.messages,
+          messages: processedMessages,
           conversationTitle: result.title,
-          service: service
+          service: service,
+          messageType: 'all'
         }, (response) => {
           sendResponse(response);
         });

@@ -79,10 +79,9 @@ module.exports = (env) => {
       }),
       new CopyPlugin({
         patterns: [
-          { from: "public", to: ".", globOptions: { ignore: ["**/*.html", "**/locales/**"] } },
+          { from: "public", to: ".", globOptions: { ignore: ["**/*.html"] } },
           { from: `manifests/manifest_${browser}.json`, to: "manifest.json" },
-          { from: "src/contentScripts/inject.css", to: "contentScript.css" },
-          { from: "public/locales", to: "locales" }
+          { from: "src/contentScripts/inject.css", to: "contentScript.css" }
         ],
       }),
       new webpack.DefinePlugin({
