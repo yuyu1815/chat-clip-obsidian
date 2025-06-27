@@ -79,6 +79,7 @@ console.log('[ChatVault] Content script loading...', window.location.href);
     const button = document.createElement('button');
     button.className = 'chatvault-save-btn';
     button.setAttribute('aria-label', 'Save to Obsidian');
+    button.setAttribute('data-tooltip', 'Save to Obsidian');
     button.innerHTML = `
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/>
@@ -239,23 +240,21 @@ console.log('[ChatVault] Content script loading...', window.location.href);
       console.log('[ChatVault] Service:', service);
       console.log('[ChatVault] Current URL:', window.location.href);
       
-      // Add visual feedback
-      button.style.background = 'red';
-      button.innerHTML = '⏳ Saving...';
+      // Add visual feedback using CSS classes
+      button.classList.add('chatvault-saving');
+      button.disabled = true;
       
       try {
         handleSaveClick(messageElement);
       } catch (error) {
         console.error('[ChatVault] ❌ Error in handleSaveClick:', error);
         alert('Error: ' + error.message);
-        button.style.background = '';
-        button.innerHTML = `
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/>
-            <polyline points="17 21 17 13 7 13 7 21"/>
-            <polyline points="7 3 7 8 15 8"/>
-          </svg>
-        `;
+        button.classList.remove('chatvault-saving');
+        button.classList.add('chatvault-error');
+        button.disabled = false;
+        setTimeout(() => {
+          button.classList.remove('chatvault-error');
+        }, 2000);
       }
     });
   }
@@ -379,7 +378,9 @@ console.log('[ChatVault] Content script loading...', window.location.href);
         if (response && response.success) {
           // Show success feedback
           if (button) {
+            button.classList.remove('chatvault-saving');
             button.classList.add('chatvault-saved');
+            button.disabled = false;
             setTimeout(() => {
               button.classList.remove('chatvault-saved');
             }, 2000);
@@ -395,6 +396,14 @@ console.log('[ChatVault] Content script loading...', window.location.href);
         } else {
           console.error('[ChatVault] Failed to save message:', response?.error);
           alert(`保存に失敗しました: ${response?.error || 'Unknown error'}`);
+          if (button) {
+            button.classList.remove('chatvault-saving');
+            button.classList.add('chatvault-error');
+            button.disabled = false;
+            setTimeout(() => {
+              button.classList.remove('chatvault-error');
+            }, 2000);
+          }
         }
       });
       
@@ -626,6 +635,90 @@ console.log('[ChatVault] Content script loading...', window.location.href);
     }
   }
 
+  // File System Access API functionality
+  async function handleFileSystemSave(content, relativePath) {
+    try {
+      console.log('[ChatVault] Attempting File System Access API save...');
+      
+      // Load the directory handle from IndexedDB
+      const dirHandle = await loadDirectoryHandle();
+      if (!dirHandle) {
+        throw new Error('No directory handle found. Please select a vault folder in the extension options.');
+      }
+
+      // Verify permission
+      const permission = await dirHandle.queryPermission({ mode: 'readwrite' });
+      if (permission !== 'granted') {
+        const newPermission = await dirHandle.requestPermission({ mode: 'readwrite' });
+        if (newPermission !== 'granted') {
+          throw new Error('File system permission denied');
+        }
+      }
+
+      // Parse the path and create directories as needed
+      const pathSegments = relativePath.split('/').filter(segment => segment);
+      const fileName = pathSegments.pop();
+      
+      let currentDir = dirHandle;
+      for (const segment of pathSegments) {
+        currentDir = await currentDir.getDirectoryHandle(segment, { create: true });
+      }
+
+      // Create or overwrite the file
+      const fileHandle = await currentDir.getFileHandle(fileName, { create: true });
+      const writable = await fileHandle.createWritable();
+      await writable.write(content);
+      await writable.close();
+
+      console.log('[ChatVault] File saved successfully via File System Access API');
+      return { success: true, method: 'filesystem' };
+    } catch (error) {
+      console.error('[ChatVault] File System Access API error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // Load directory handle from IndexedDB
+  async function loadDirectoryHandle() {
+    try {
+      const db = await openDB();
+      const tx = db.transaction(['handles'], 'readonly');
+      const store = tx.objectStore('handles');
+      const request = store.get('vaultDirectory');
+      
+      return new Promise((resolve, reject) => {
+        request.onsuccess = () => {
+          db.close();
+          resolve(request.result);
+        };
+        request.onerror = () => {
+          db.close();
+          reject(request.error);
+        };
+      });
+    } catch (error) {
+      console.error('[ChatVault] Error loading directory handle:', error);
+      return null;
+    }
+  }
+
+  // Open IndexedDB
+  function openDB() {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open('ChatVaultDB', 1);
+      
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result);
+      
+      request.onupgradeneeded = (event) => {
+        const db = event.target.result;
+        if (!db.objectStoreNames.contains('handles')) {
+          db.createObjectStore('handles');
+        }
+      };
+    });
+  }
+
   // Selection highlighting functionality
   let selectionOverlay = null;
   let isSelectionMode = false;
@@ -779,6 +872,14 @@ console.log('[ChatVault] Content script loading...', window.location.href);
     } else if (request.action === 'copyToClipboard') {
       // Handle clipboard copy request from background script
       copyToClipboard(request.content).then(result => {
+        sendResponse(result);
+      }).catch(error => {
+        sendResponse({ success: false, error: error.message });
+      });
+      return true; // Keep message channel open for async response
+    } else if (request.action === 'saveViaFileSystem') {
+      // Handle File System Access API save request
+      handleFileSystemSave(request.content, request.relativePath).then(result => {
         sendResponse(result);
       }).catch(error => {
         sendResponse({ success: false, error: error.message });

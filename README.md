@@ -14,6 +14,8 @@ Chat Clip Obsidianは、Web版生成AIチャットサービスの会話を効率
 - 📁 **スマート整理**: サービス別、日付別の自動フォルダ分類
 - ✨ **きれいなMarkdown**: コードブロック、数式、フォーマットを保持
 - 🔗 **直接連携**: Obsidian URIで即座にノート作成
+- 💾 **直接保存機能**: File System Access APIによるVaultへの直接書き込み（NEW!）
+- 🔔 **保存通知**: ファイル保存成功時の通知表示
 
 ## 対応サービス
 
@@ -69,10 +71,18 @@ npm run build:chromium
 ## 設定
 
 1. **拡張機能アイコン**をクリックして**オプション**を選択
-2. **必須設定**:
+2. **保存方法の選択**（NEW!）:
+   - **Direct Save (推奨)**: File System Access APIでVaultに直接保存
+   - **Downloads API**: ダウンロードフォルダ経由で保存
+   - **Advanced URI Plugin**: Obsidianプラグイン経由
+   - **Clipboard**: クリップボード経由（手動貼り付け）
+3. **Direct Save設定**（推奨）:
+   - 「Select Vault Folder」ボタンでObsidian Vaultフォルダを選択
+   - 一度選択すれば、以降は自動的に直接保存されます
+4. **基本設定**:
    - **Obsidian Vault名**: 保存先のvault名を入力
    - **保存フォルダ**: 保存先パス（例：`AI Chats/{service}/{date}`）
-3. **カスタマイズ可能**:
+5. **カスタマイズ可能**:
    - デフォルト保存モード
    - ファイル名形式
    - Markdownテンプレート
@@ -187,6 +197,7 @@ src/
 ## 技術仕様
 
 - **対応ブラウザ**: Chrome 121+, Edge 121+, Brave
+- **File System Access API**: Chrome 86+, Edge 86+（Direct Save機能）
 - **Manifest**: Version 3
 - **フレームワーク**: React, Tailwind CSS
 - **ビルドツール**: Webpack
