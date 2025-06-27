@@ -1,9 +1,7 @@
 /* global chrome */
 import React, { useState, useEffect } from "react";
-import { useTranslation } from 'react-i18next';
 
 const OptionsApp = () => {
-  const { t } = useTranslation();
 
   // Original settings
   const [vault, setVault] = useState("");
@@ -110,7 +108,7 @@ const OptionsApp = () => {
       console.log('[ChatVault Options] 📁 Opening folder picker...');
       // Check if File System Access API is available
       if (!('showDirectoryPicker' in window)) {
-        alert('File System Access API is not supported in your browser. Please use Chrome 86+ or Edge 86+.');
+        alert('File System Access APIはサポートされていません。Chrome 86+またはEdge 86+を使用してください。');
         return;
       }
 
@@ -138,7 +136,7 @@ const OptionsApp = () => {
         console.log('[ChatVault Options] 📁 Folder selection cancelled');
       } else {
         console.error('[ChatVault Options] ❌ Error selecting folder:', err);
-        alert('Error selecting folder: ' + err.message);
+        alert('フォルダ選択エラー: ' + err.message);
       }
     }
   };
@@ -180,7 +178,7 @@ const OptionsApp = () => {
     if (vault.trim() === "" || folder.trim() === "") {
       console.error('[ChatVault Options] ❌ Required fields empty');
       alert(
-        "Please provide a value for both Obsidian Vault Name and Clip Notes to fields."
+        "Obsidian Vault名と基本フォルダ名の両方を入力してください。"
       );
       return;
     }
@@ -189,7 +187,7 @@ const OptionsApp = () => {
 
     if (invalidCharacterPattern.test(vault)) {
       alert(
-        'Invalid character detected. Please avoid using the following characters in the Vault Name: /, \\, :, *, ?, ", <, >, |'
+        "無効な文字が検出されました。Vault名には次の文字を使用しないでください: /, \\, :, *, ?, \", <, >, |"
       );
       return;
     }
@@ -198,7 +196,7 @@ const OptionsApp = () => {
     if (showChatSettings) {
       const chatFolderPattern = /\{(title|service|date)\}/;
       if (!chatFolderPattern.test(chatFolderPath)) {
-        alert("Chat folder path must contain at least one placeholder: {title}, {service}, or {date}");
+        alert("チャットフォルダパスには、少なくとも1つのプレースホルダー（{title}、{service}、または{date}）を含める必要があります");
         return;
       }
     }
@@ -230,7 +228,7 @@ const OptionsApp = () => {
           console.error(`Error: ${chrome.runtime.lastError}`);
         } else {
           alert(
-            `Success! 🎉\n\nYour settings have been saved.\n\nChat messages will be saved to: "${chatFolderPath}"`
+            `設定を保存しました！🎉\n\nチャットメッセージは次のフォルダに保存されます: "${chatFolderPath}"`
           );
           
           // Notify content scripts to update
@@ -243,7 +241,7 @@ const OptionsApp = () => {
   const handleTest = () => {
     if (vault.trim() === "") {
       alert(
-        "Please provide a value for Obsidian Vault Name."
+        "Obsidian Vault名を入力してください。"
       );
       return;
     }
@@ -279,7 +277,7 @@ const OptionsApp = () => {
     if (vault.trim() !== "") {
       window.open(obsidianUri, "_blank");
     } else {
-      alert("Please provide a valid Obsidian Vault Name.");
+      alert("有効なObsidian Vault名を入力してください。");
     }
   };
 
@@ -291,24 +289,24 @@ const OptionsApp = () => {
       <div className="container mx-auto p-8">
         <header className="mb-8">
           <h1 className="text-4xl font-bold text-purple-400 mb-2">
-            {t('options_title')}
+            Chat Clip Obsidian 設定
           </h1>
           <p className="text-gray-400">
-            Configure how you clip content and chats to Obsidian.
+            コンテンツとチャットをObsidianに保存する方法を設定します。
           </p>
         </header>
 
         <div className="bg-gray-800 p-6 rounded-lg shadow-lg mb-8">
           <h2 className="text-2xl font-semibold mb-4 border-b border-gray-700 pb-2 text-purple-300">
-            {t('core_settings')}
+            基本設定
           </h2>
 
           <div className="mb-4">
             <label htmlFor="vault" className="block text-lg font-medium mb-1">
-              {t('obsidian_vault_name')}
+              Obsidian Vault名
             </label>
             <p className="text-sm text-gray-400 mb-2">
-              ( {t('obsidian_vault_name_desc')} )
+              ( Obsidianで使用しているVault名を入力してください )
             </p>
             <input
               type="text"
@@ -325,10 +323,10 @@ const OptionsApp = () => {
               htmlFor="folder"
               className="block text-lg font-medium mb-1"
             >
-              {t('base_folder_name')}
+              基本フォルダ名
             </label>
             <p className="text-sm text-gray-400 mb-2">
-              ( {t('base_folder_name_desc')} )
+              ( WebページをクリップするデフォルトのフォルダーLLM Chats/{service}/{title} )
             </p>
             <input
               type="text"
@@ -345,7 +343,7 @@ const OptionsApp = () => {
         <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-2xl font-semibold text-purple-300">
-              {t('enable_chat_features')}
+              AIチャット機能を有効化
             </h2>
             <label className="switch">
               <input
@@ -361,10 +359,10 @@ const OptionsApp = () => {
             <div className="border-t border-gray-700 pt-4">
               <div className="mb-4">
                 <label htmlFor="chatFolderPath" className="block text-lg font-medium mb-1">
-                  {t('chat_messages_folder')}
+                  チャットメッセージの保存先フォルダ
                 </label>
                 <p className="text-sm text-gray-400 mb-2">
-                  ( {t('chat_messages_folder_desc')} )
+                  ( 使用可能なプレースホルダー: {service}, {title}, {date} )
                 </p>
                 <input
                   type="text"
@@ -378,10 +376,10 @@ const OptionsApp = () => {
 
               <div className="mb-4">
                 <label htmlFor="saveMethod" className="block text-lg font-medium mb-1">
-                  {t('save_method')}
+                  保存方法
                 </label>
                 <p className="text-sm text-gray-400 mb-2">
-                  ( {t('save_method_desc')} )
+                  ( Obsidianへのファイル保存方法を選択してください )
                 </p>
                 <select
                   id="saveMethod"
@@ -389,37 +387,37 @@ const OptionsApp = () => {
                   value={saveMethod}
                   onChange={(e) => setSaveMethod(e.target.value)}
                 >
-                  <option value="filesystem">{t('method_filesystem')}</option>
-                  <option value="advanced-uri">{t('method_advanced_uri')}</option>
-                  <option value="downloads">{t('method_downloads')}</option>
-                  <option value="clipboard">{t('method_clipboard')}</option>
-                  <option value="auto">{t('method_auto')}</option>
+                  <option value="filesystem">File System API (推奨)</option>
+                  <option value="advanced-uri">Advanced URI プラグイン</option>
+                  <option value="downloads">ダウンロードフォルダ経由</option>
+                  <option value="clipboard">クリップボード経由</option>
+                  <option value="auto">自動選択</option>
                 </select>
               </div>
               
               {saveMethod === 'filesystem' && (
                 <div className="mb-4 p-4 bg-gray-700 rounded">
                   <label className="block text-lg font-medium mb-1">
-                    {t('obsidian_vault_folder')}
+                    Obsidian Vaultフォルダ
                   </label>
                   <p className="text-sm text-gray-400 mb-2">
-                    ( {t('obsidian_vault_folder_desc')} )
+                    ( Obsidian Vaultのルートディレクトリを選択してください )
                   </p>
                   <button
                     onClick={handleSelectFolder}
                     className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition-colors duration-200"
                   >
-                    {folderPath ? `${folderPath} (Change)` : t('select_vault_folder')}
+                    {folderPath ? `${folderPath} (変更)` : 'Vault フォルダを選択'}
                   </button>
                    <p className="text-sm text-gray-400 mt-2">
-                    This folder should be your Obsidian vault root directory. Files will be saved directly here.
+                    このフォルダはObsidian Vaultのルートディレクトリである必要があります。ファイルは直接ここに保存されます。
                   </p>
                 </div>
               )}
               
               <div className="mb-4">
                 <label htmlFor="defaultMode" className="block text-lg font-medium mb-1">
-                  {t('default_capture_mode')}
+                  デフォルトキャプチャモード
                 </label>
                 <select
                   id="defaultMode"
@@ -427,11 +425,11 @@ const OptionsApp = () => {
                   value={defaultMode}
                   onChange={(e) => setDefaultMode(e.target.value)}
                 >
-                  <option value="single">Single Message</option>
-                  <option value="last3">Last 3 Messages</option>
-                  <option value="last5">Last 5 Messages</option>
-                  <option value="full">Full Conversation</option>
-                  <option value="selection">Selection</option>
+                  <option value="single">単一メッセージ</option>
+                  <option value="last3">最新3件</option>
+                  <option value="last5">最新5件</option>
+                  <option value="full">会話全体</option>
+                  <option value="selection">選択範囲</option>
                 </select>
               </div>
 
@@ -439,10 +437,10 @@ const OptionsApp = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
                 <div>
                   <label htmlFor="defaultMessageCount" className="block text-lg font-medium mb-1">
-                    {t('default_msg_count')}
+                    デフォルトメッセージ数
                   </label>
                   <p className="text-sm text-gray-400 mb-2">
-                    ( {t('default_msg_count_desc')} )
+                    ( 「最新N件」モードで保存するメッセージ数 )
                   </p>
                   <input
                     type="number"
@@ -455,7 +453,7 @@ const OptionsApp = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-lg font-medium mb-1">{t('save_button_settings')}</label>
+                  <label className="block text-lg font-medium mb-1">保存ボタン設定</label>
                   <div className="flex items-center mt-2 bg-gray-700 p-2 rounded">
                     <input
                       type="checkbox"
@@ -465,20 +463,20 @@ const OptionsApp = () => {
                       onChange={(e) => setShowSaveButton(e.target.checked)}
                     />
                     <label htmlFor="showSaveButton" className="ml-3 text-white">
-                      {t('show_save_button')}
+                      チャットページに保存ボタンを表示
                     </label>
                   </div>
                   {showSaveButton && (
                     <div className="mt-2">
-                      <label htmlFor="buttonPosition" className="block text-sm font-medium mb-1">{t('button_position')}</label>
+                      <label htmlFor="buttonPosition" className="block text-sm font-medium mb-1">ボタン位置</label>
                       <select
                         id="buttonPosition"
                         className="w-full p-2 bg-gray-700 rounded border border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-400 text-sm"
                         value={buttonPosition}
                         onChange={(e) => setButtonPosition(e.target.value)}
                       >
-                        <option value="top-right">{t('top_right')}</option>
-                        <option value="bottom-right">{t('bottom_right')}</option>
+                        <option value="top-right">右上</option>
+                        <option value="bottom-right">右下</option>
                       </select>
                     </div>
                   )}
@@ -487,7 +485,7 @@ const OptionsApp = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
                   <div>
-                    <label className="block text-lg font-medium mb-1">{t('auto_tagging')}</label>
+                    <label className="block text-lg font-medium mb-1">自動タグ付け</label>
                      <div className="flex items-center mt-2 bg-gray-700 p-2 rounded">
                         <input
                           type="checkbox"
@@ -497,12 +495,12 @@ const OptionsApp = () => {
                           onChange={(e) => setAutoTagging(e.target.checked)}
                         />
                         <label htmlFor="autoTagging" className="ml-3 text-white">
-                          {t('auto_tagging_desc')}
+                          サービス名を自動的にタグとして追加
                         </label>
                       </div>
                   </div>
                    <div>
-                    <label className="block text-lg font-medium mb-1">{t('preview_settings')}</label>
+                    <label className="block text-lg font-medium mb-1">プレビュー設定</label>
                      <div className="flex items-center mt-2 bg-gray-700 p-2 rounded">
                         <input
                           type="checkbox"
@@ -512,7 +510,7 @@ const OptionsApp = () => {
                           onChange={(e) => setShowPreview(e.target.checked)}
                         />
                         <label htmlFor="showPreview" className="ml-3 text-white">
-                          {t('show_markdown_preview')}
+                          保存前にMarkdownプレビューを表示
                         </label>
                       </div>
                   </div>
@@ -520,15 +518,15 @@ const OptionsApp = () => {
 
               <div className="mb-4 mt-6">
                 <label htmlFor="chatNoteFormat" className="block text-lg font-medium mb-1">
-                  {t('chat_note_format')}
+                  チャットノートフォーマット
                 </label>
                 <p className="text-sm text-gray-400 mb-2">
-                  ( {t('chat_note_format_desc')} )
+                  ( 使用可能なプレースホルダー: {title}, {content}, {url}, {date}, {service} )
                 </p>
                 <div className="flex gap-2 my-2">
-                    <button onClick={() => setChatNoteFormat('---\ntitle: {title}\ndate: {date}\nservice: {service}\nurl: {url}\n---\n\n{content}')} className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded-md">{t('default_template')}</button>
-                    <button onClick={() => setChatNoteFormat('---\ntitle: {title}\ndate: {date}\nservice: {service}\nurl: {url}\ntags: [ai-chat, {service}]\n---\n\n# {title}\n\n{content}')} className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded-md">{t('with_tags_template')}</button>
-                    <button onClick={() => setChatNoteFormat('# {title}\\n\\n- **Date**: {date}\\n- **Service**: {service}\\n- **URL**: [{url}]({url})\\n\\n---\\n\\n{content}')} className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded-md">{t('simple_template')}</button>
+                    <button onClick={() => setChatNoteFormat('---\ntitle: {title}\ndate: {date}\nservice: {service}\nurl: {url}\n---\n\n{content}')} className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded-md">デフォルト</button>
+                    <button onClick={() => setChatNoteFormat('---\ntitle: {title}\ndate: {date}\nservice: {service}\nurl: {url}\ntags: [ai-chat, {service}]\n---\n\n# {title}\n\n{content}')} className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded-md">タグ付き</button>
+                    <button onClick={() => setChatNoteFormat('# {title}\\n\\n- **Date**: {date}\\n- **Service**: {service}\\n- **URL**: [{url}]({url})\\n\\n---\\n\\n{content}')} className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded-md">シンプル</button>
                 </div>
                 <textarea
                   id="chatNoteFormat"
@@ -548,7 +546,7 @@ const OptionsApp = () => {
             onClick={handleSave}
             className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-6 rounded-lg transition-colors duration-200 text-lg"
           >
-            {t('save_settings')}
+            設定を保存
           </button>
         </div>
         

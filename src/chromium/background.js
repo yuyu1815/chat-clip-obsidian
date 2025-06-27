@@ -765,7 +765,7 @@ async function handleSaveMultipleMessages(request, sender, sendResponse) {
   const URI_LENGTH_LIMIT = 8000; // Increased limit - most browsers can handle this
   
   try {
-    const { messages, service, mode, count } = request;
+    const { messages, service, conversationTitle, messageType, count } = request;
     
     if (!messages || messages.length === 0) {
       sendResponse({ success: false, error: 'No messages to save' });
@@ -782,28 +782,34 @@ async function handleSaveMultipleMessages(request, sender, sendResponse) {
     });
     
     const vaultName = settings.obsidianVault || 'MyVault';
-    const folderTemplate = settings.chatFolderPath || 'ChatVault/{service}/{title}';
+    const folderTemplate = settings.chatFolderPath || 'ChatVault/{service}';
     const noteTemplate = settings.chatNoteFormat || '---\ntitle: {title}\ndate: {date}\nservice: {service}\nurl: {url}\n---\n\n{content}';
     
     // Generate content
     const now = new Date();
     const dateStr = now.toISOString().split('T')[0];
-    const conversationTitle = `${service} Chat - ${dateStr}`;
+    const title = conversationTitle || `${service} Chat - ${dateStr}`;
     
     let content = '';
-    if (mode === 'recent') {
-      content += `# Last ${count} Messages\n\n`;
-    } else if (mode === 'full') {
+    if (messageType === 'recent') {
+      content += `# Last ${count || messages.length} Messages\n\n`;
+    } else if (messageType === 'all') {
       content += `# Full Conversation\n\n`;
+    } else if (messageType === 'selection') {
+      content += `# Selected Messages\n\n`;
     }
     
     messages.forEach((msg, index) => {
-      content += `### ${msg.role === 'user' ? 'User' : 'Assistant'}\n\n${msg.content}\n\n`;
+      const speaker = msg.speaker || (msg.role === 'user' ? 'User' : 'Assistant');
+      content += `### ${speaker}\n\n${msg.content}\n\n`;
+      if (index < messages.length - 1) {
+        content += '---\n\n';
+      }
     });
     
     // Apply template
     const finalContent = noteTemplate
-      .replace('{title}', conversationTitle)
+      .replace('{title}', title)
       .replace('{date}', dateStr)
       .replace('{service}', service)
       .replace('{url}', sender.tab?.url || '')
@@ -811,11 +817,18 @@ async function handleSaveMultipleMessages(request, sender, sendResponse) {
     
     // Generate folder path and filename
     const folderPath = folderTemplate
-      .replace('{service}', service)
+      .replace('{service}', service.toUpperCase())
       .replace('{date}', dateStr)
-      .replace('{title}', conversationTitle);
+      .replace('{title}', title);
     
-    const filename = `${dateStr}_${mode}_${service}_conversation.md`;
+    // Sanitize title for filename
+    const sanitizedTitle = title
+      .replace(/[\/\\:*?"<>|]/g, '') // Remove file system unsafe characters
+      .replace(/\s+/g, '_')
+      .trim() || 'untitled';
+    
+    const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '-');
+    const filename = `${dateStr}_${timeStr}_${messageType}_${service}_${sanitizedTitle}.md`;
     
     // Create URI
     const fullFilePath = `${folderPath}/${filename}`;
