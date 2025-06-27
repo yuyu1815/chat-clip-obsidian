@@ -1,8 +1,8 @@
 /* global chrome */
 import "./App.css";
 import React, { useState, useEffect, useRef } from "react";
-import ChatModeSelector from "./ChatModeSelector";
-import MarkdownPreview from "./MarkdownPreview";
+import ChatModeSelector from "./components/ChatModeSelector";
+import MarkdownPreview from "./components/MarkdownPreview";
 
 function App() {
   // Original state
@@ -171,13 +171,13 @@ url: ${pageInfo.url}
 `;
       
       if (mode === 'single') {
-        preview += 'Current message will be saved here.';
+        preview += '### Message Content\n\nCurrent message will be saved here.';
       } else if (mode === 'selection') {
-        preview += 'Selected text will be saved here.';
-      } else if (mode === 'lastN') {
-        preview += `Last ${messageCount} messages will be saved here.`;
+        preview += '### Selected Text\n\nSelected text will be saved here.';
+      } else if (mode === 'recent') {
+        preview += `### Recent Messages\n\nLast ${messageCount} messages will be saved here.`;
       } else if (mode === 'full') {
-        preview += 'Full conversation will be saved here.';
+        preview += '### Full Conversation\n\nFull conversation will be saved here.';
       }
       
       setChatPreviewContent(preview);
@@ -257,13 +257,13 @@ url: ${pageInfo.url}
       chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
         const action = mode === 'single' ? 'saveActive' :
                       mode === 'selection' ? 'saveSelected' :
-                      mode === 'lastN' ? 'saveLastN' :
+                      mode === 'recent' ? 'saveLastN' :
                       mode === 'full' ? 'saveAll' : null;
         
         if (action) {
           chrome.tabs.sendMessage(tabs[0].id, {
             action: action,
-            count: mode === 'lastN' ? messageCount : undefined
+            count: mode === 'recent' ? messageCount : undefined
           }, (response) => {
             if (chrome.runtime.lastError) {
               setNotification({ 
@@ -353,14 +353,33 @@ url: ${pageInfo.url}
           : 'border-zinc-700 bg-zinc-50 text-black'
       }`}
     >
+      {/* Header */}
+      <div className={`px-4 py-3 border-b ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+        <div className="flex items-center justify-between">
+          <h1 className={`text-lg font-semibold ${darkMode ? 'text-white' : 'text-gray-900'}`}>
+            ChatVault Clip
+          </h1>
+          <div className="flex items-center space-x-2">
+            <span className={`text-xs px-2 py-1 rounded-full ${
+              isOnChatPage 
+                ? 'bg-green-500/20 text-green-400' 
+                : 'bg-gray-500/20 text-gray-400'
+            }`}>
+              {isOnChatPage ? 'Ready' : 'Not on chat page'}
+            </span>
+          </div>
+        </div>
+      </div>
+
       {isOnChatPage && (
-        <ChatModeSelector 
-          mode={mode}
-          onModeChange={setMode}
-          messageCount={messageCount}
-          onMessageCountChange={setMessageCount}
-          isOnChatPage={isOnChatPage}
-        />
+        <div className="p-4">
+          <ChatModeSelector 
+            onModeChange={setMode}
+            onCountChange={setMessageCount}
+            defaultMode={mode}
+            defaultCount={messageCount}
+          />
+        </div>
       )}
       
       <div className="p-4">
@@ -368,7 +387,7 @@ url: ${pageInfo.url}
             <div className="text-sm text-zinc-600 mb-2">
               {mode === 'single' && "Click 'Save' to capture the current message"}
               {mode === 'selection' && "Select text on the page, then click 'Save'"}
-              {mode === 'lastN' && `Will save the last ${messageCount} messages`}
+              {mode === 'recent' && `Will save the last ${messageCount} messages`}
               {mode === 'full' && "Will save the entire conversation"}
             </div>
             {!isOnChatPage && (
@@ -379,13 +398,28 @@ url: ${pageInfo.url}
           </div>
           
           {saveHistory.length > 0 && (
-            <div className="mt-4 border-t pt-3">
-              <div className="text-xs text-zinc-600 mb-2">Recent Saves:</div>
+            <div className={`mt-4 pt-3 border-t ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+              <div className={`text-xs mb-2 font-medium ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                Recent Saves
+              </div>
               <div className="space-y-1">
                 {saveHistory.map((item, index) => (
-                  <div key={index} className="text-xs bg-zinc-100 rounded px-2 py-1 flex justify-between">
-                    <span className="truncate">{item.title}</span>
-                    <span className="text-zinc-500 ml-2">{item.service}</span>
+                  <div key={index} className={`text-xs rounded-lg px-3 py-2 flex items-center justify-between ${
+                    darkMode ? 'bg-gray-700/50' : 'bg-gray-100'
+                  }`}>
+                    <div className="flex items-center space-x-2 flex-1 min-w-0">
+                      <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
+                        item.service === 'ChatGPT' 
+                          ? 'bg-green-500/20 text-green-400' 
+                          : 'bg-purple-500/20 text-purple-400'
+                      }`}>
+                        {item.service}
+                      </span>
+                      <span className="truncate flex-1">{item.title}</span>
+                    </div>
+                    <span className={`text-xs ml-2 ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                      {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -393,8 +427,14 @@ url: ${pageInfo.url}
           )}
         </div>
       
-      {showPreview && (
-        <MarkdownPreview content={chatPreviewContent} title={title || 'Chat Preview'} />
+      {showPreview && isOnChatPage && (
+        <div className="p-4 pt-0">
+          <MarkdownPreview 
+            content={chatPreviewContent} 
+            isLoading={loading}
+            maxHeight="300px"
+          />
+        </div>
       )}
       
       {notification && (
@@ -405,13 +445,17 @@ url: ${pageInfo.url}
         </div>
       )}
       
-      <div className="flex justify-between w-full pr-2 pb-1 items-center">
+      <div className={`flex justify-between w-full px-4 py-3 items-center border-t ${
+        darkMode ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'
+      }`}>
         <div>
           <button
             ref={hamburgerMenuButtonRef}
-            className={`p-1 rounded-full hover:bg-zinc-200 active:bg-zinc-300 ${
-              showHamburgerMenu ? "bg-zinc-200" : ""
-            }`}
+            className={`p-2 rounded-lg transition-colors ${
+              darkMode 
+                ? 'hover:bg-gray-700 active:bg-gray-600' 
+                : 'hover:bg-gray-200 active:bg-gray-300'
+            } ${showHamburgerMenu ? (darkMode ? 'bg-gray-700' : 'bg-gray-200') : ''}`}
             onClick={() => setShowHamburgerMenu(!showHamburgerMenu)}
           >
             <svg
@@ -432,58 +476,103 @@ url: ${pageInfo.url}
           {showHamburgerMenu && (
             <div
               ref={menuRef}
-              className="fixed bottom-11 left-1 bg-zinc-200 rounded-md shadow-lg"
+              className={`fixed bottom-14 left-4 rounded-lg shadow-xl min-w-[200px] ${
+                darkMode ? 'bg-gray-800 border border-gray-700' : 'bg-white border border-gray-200'
+              }`}
             >
               <button
-                className="block w-full text-left py-2 px-2 hover:bg-zinc-300 active:bg-zinc-400 rounded-md"
+                className={`block w-full text-left py-3 px-4 rounded-t-lg transition-colors ${
+                  darkMode 
+                    ? 'hover:bg-gray-700 text-gray-200' 
+                    : 'hover:bg-gray-100 text-gray-700'
+                }`}
                 onClick={optionsRedirect}
               >
-                Options
+                <div className="flex items-center space-x-3">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  <span>Options</span>
+                </div>
               </button>
               <button
-                className="block w-full text-left py-2 px-2 hover:bg-zinc-300 active:bg-zinc-400 rounded-md"
+                className={`block w-full text-left py-3 px-4 transition-colors ${
+                  darkMode 
+                    ? 'hover:bg-gray-700 text-gray-200' 
+                    : 'hover:bg-gray-100 text-gray-700'
+                }`}
                 onClick={() => setShowPreview(!showPreview)}
               >
-                {showPreview ? 'Hide' : 'Show'} Preview
+                <div className="flex items-center space-x-3">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                  </svg>
+                  <span>{showPreview ? 'Hide' : 'Show'} Preview</span>
+                </div>
               </button>
               <button
-                className="block w-full text-left py-2 px-2 hover:bg-zinc-300 active:bg-zinc-400 rounded-md flex items-center"
+                className={`block w-full text-left py-3 px-4 transition-colors ${
+                  darkMode 
+                    ? 'hover:bg-gray-700 text-gray-200' 
+                    : 'hover:bg-gray-100 text-gray-700'
+                }`}
                 onClick={toggleDarkMode}
               >
-                <span className="mr-2">
-                  {darkMode ? '☀️' : '🌙'}
-                </span>
-                {darkMode ? 'Light Mode' : 'Dark Mode'}
+                <div className="flex items-center space-x-3">
+                  <span className="text-lg">{darkMode ? '☀️' : '🌙'}</span>
+                  <span>{darkMode ? 'Light Mode' : 'Dark Mode'}</span>
+                </div>
               </button>
               <button
-                className="block w-full text-left py-2 px-2 hover:bg-zinc-300 active:bg-zinc-400 rounded-md"
+                className={`block w-full text-left py-3 px-4 rounded-b-lg transition-colors ${
+                  darkMode 
+                    ? 'hover:bg-gray-700 text-gray-200' 
+                    : 'hover:bg-gray-100 text-gray-700'
+                }`}
                 onClick={donateRedirect}
               >
-                Donate
+                <div className="flex items-center space-x-3">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+                  </svg>
+                  <span>Support Us</span>
+                </div>
               </button>
             </div>
           )}
         </div>
-        <div className="text-sm">
+        <div className="flex items-center space-x-2">
           <button
-            className="py-1 px-2 mr-2 bg-zinc-50 rounded hover:bg-zinc-200 active:bg-zinc-300 font-semibold text-zinc-800"
+            className={`py-2 px-4 rounded-lg font-medium transition-colors ${
+              darkMode
+                ? 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+                : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
+            }`}
             onClick={handleCancel}
           >
             Cancel
           </button>
           <button
             ref={saveButtonRef}
-            className={`py-1 px-2 bg-white rounded font-semibold relative ${
+            className={`py-2 px-5 rounded-lg font-medium transition-all relative ${
               saveButtonDisabled
-                ? "opacity-50 cursor-not-allowed bg-zinc-50 hover:bg-zinc-50 text-zinc-800"
-                : "bg-zinc-50 hover:bg-indigo-100 hover:text-indigo-700 active:bg-indigo-200"
+                ? darkMode 
+                  ? "opacity-50 cursor-not-allowed bg-gray-700 text-gray-500"
+                  : "opacity-50 cursor-not-allowed bg-gray-200 text-gray-400"
+                : darkMode
+                  ? "bg-blue-600 hover:bg-blue-700 text-white shadow-lg hover:shadow-xl"
+                  : "bg-blue-500 hover:bg-blue-600 text-white shadow-lg hover:shadow-xl"
             }`}
             onClick={saveNote}
             disabled={saveButtonDisabled}
             title="Save (Alt+S)"
           >
-            Save
-            <span className="text-xs opacity-60 ml-1">⌥S</span>
+            <span className="flex items-center space-x-2">
+              <span>Save</span>
+              <span className="text-xs opacity-75">⌥S</span>
+            </span>
           </button>
         </div>
       </div>

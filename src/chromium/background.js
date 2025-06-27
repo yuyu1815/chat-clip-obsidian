@@ -294,13 +294,65 @@ source: text selection
     const savePreferences = await new Promise((resolve) => {
       chrome.storage.sync.get(['saveMethod', 'downloadsFolder'], (prefs) => {
         resolve({
-          method: prefs.saveMethod || 'advanced-uri', // advanced-uri (default), auto, downloads, clipboard
+          method: prefs.saveMethod || 'filesystem', // filesystem (default), advanced-uri, auto, downloads, clipboard
           downloadsFolder: prefs.downloadsFolder || 'ChatVault'
         });
       });
     });
     
     console.log('[ChatVault Background] 💾 Save preferences:', savePreferences);
+    
+    // Try File System Access API first if configured
+    if (savePreferences.method === 'filesystem' || savePreferences.method === 'auto') {
+      try {
+        console.log('[ChatVault Background] 📁 Attempting File System Access API method...');
+        
+        // Send message to content script to handle file system save
+        const tabId = sender.tab?.id;
+        if (!tabId) {
+          throw new Error('No valid tab ID for filesystem operation');
+        }
+        
+        const result = await new Promise((resolve, reject) => {
+          chrome.tabs.sendMessage(tabId, {
+            action: 'saveViaFileSystem',
+            content: fullContent,
+            relativePath: `${fullFolderPath}/${filename}`
+          }, (response) => {
+            if (chrome.runtime.lastError) {
+              reject(chrome.runtime.lastError);
+            } else if (!response.success) {
+              reject(new Error(response.error));
+            } else {
+              resolve(response);
+            }
+          });
+        });
+        
+        console.log('[ChatVault Background] ✅ File System Access API save successful');
+        
+        // Show success notification
+        chrome.notifications.create({
+          type: 'basic',
+          iconUrl: 'logo48.png',
+          title: 'ChatVault Clip',
+          message: `Saved to Obsidian vault: ${filename}`,
+          priority: 1
+        });
+        
+        sendResponse({
+          success: true,
+          method: 'filesystem',
+          message: `Saved directly to your Obsidian vault: ${filename}`,
+          filename: filename,
+          path: `${fullFolderPath}/${filename}`
+        });
+        return;
+      } catch (error) {
+        console.error('[ChatVault Background] ⚠️ File System Access API failed:', error);
+        // Continue to next method if filesystem fails
+      }
+    }
     
     // Define Advanced URI clipboard function
     const tryAdvancedUriClipboard = async () => {
@@ -415,6 +467,16 @@ source: text selection
         
         if (downloadResult.success) {
           console.log('[ChatVault Background] ✅ Successfully saved via Downloads API');
+          
+          // Show notification for Downloads API save
+          chrome.notifications.create({
+            type: 'basic',
+            iconUrl: 'logo48.png',
+            title: 'ChatVault Clip',
+            message: `Saved to Downloads: ${filename}`,
+            priority: 1
+          });
+          
           sendResponse({
             success: true,
             method: 'downloads',

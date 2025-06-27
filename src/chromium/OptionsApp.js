@@ -20,8 +20,10 @@ const OptionsApp = () => {
   const [autoTagging, setAutoTagging] = useState(true);
   
   // Save method settings  
-  const [saveMethod, setSaveMethod] = useState("advanced-uri");
+  const [saveMethod, setSaveMethod] = useState("filesystem");
   const [downloadsFolder, setDownloadsFolder] = useState("ChatVault");
+  const [selectedFolder, setSelectedFolder] = useState(null);
+  const [folderPath, setFolderPath] = useState("");
 
   const defaultNoteContentFormat = "{url}\n\n{content}";
 
@@ -45,7 +47,8 @@ const OptionsApp = () => {
         "defaultMessageCount",
         "autoTagging",
         "saveMethod",
-        "downloadsFolder"
+        "downloadsFolder",
+        "selectedFolderPath"
       ],
       (result) => {
         console.log('[ChatVault Options] 📞 Loaded settings:', result);
@@ -92,10 +95,74 @@ const OptionsApp = () => {
         if (result.downloadsFolder) {
           setDownloadsFolder(result.downloadsFolder);
         }
+        if (result.selectedFolderPath) {
+          setFolderPath(result.selectedFolderPath);
+        }
       }
     );
   }, []);
 
+  const handleSelectFolder = async () => {
+    try {
+      console.log('[ChatVault Options] 📁 Opening folder picker...');
+      // Check if File System Access API is available
+      if (!('showDirectoryPicker' in window)) {
+        alert('File System Access API is not supported in your browser. Please use Chrome 86+ or Edge 86+.');
+        return;
+      }
+
+      // Open folder picker
+      const dirHandle = await window.showDirectoryPicker({
+        mode: 'readwrite',
+        startIn: 'documents'
+      });
+      
+      console.log('[ChatVault Options] 📁 Folder selected:', dirHandle.name);
+      setSelectedFolder(dirHandle);
+      setFolderPath(dirHandle.name);
+      
+      // Store folder path in chrome storage
+      chrome.storage.sync.set({ selectedFolderPath: dirHandle.name }, () => {
+        console.log('[ChatVault Options] 💾 Folder path saved to storage');
+      });
+      
+      // Store the directory handle in IndexedDB for persistence
+      const db = await openDB();
+      await saveDirectoryHandle(db, dirHandle);
+      
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        console.log('[ChatVault Options] 📁 Folder selection cancelled');
+      } else {
+        console.error('[ChatVault Options] ❌ Error selecting folder:', err);
+        alert('Error selecting folder: ' + err.message);
+      }
+    }
+  };
+
+  // IndexedDB functions for storing directory handle
+  const openDB = () => {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open('ChatVaultDB', 1);
+      
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result);
+      
+      request.onupgradeneeded = (event) => {
+        const db = event.target.result;
+        if (!db.objectStoreNames.contains('handles')) {
+          db.createObjectStore('handles');
+        }
+      };
+    });
+  };
+
+  const saveDirectoryHandle = async (db, handle) => {
+    const tx = db.transaction(['handles'], 'readwrite');
+    const store = tx.objectStore('handles');
+    await store.put(handle, 'vaultDirectory');
+    return tx.complete;
+  };
 
   const handleSave = () => {
     console.log('[ChatVault Options] 🔥 handleSave called');
@@ -152,7 +219,8 @@ const OptionsApp = () => {
         defaultMessageCount: defaultMessageCount,
         autoTagging: autoTagging,
         saveMethod: saveMethod,
-        downloadsFolder: downloadsFolder.trim() || "ChatVault"
+        downloadsFolder: downloadsFolder.trim() || "ChatVault",
+        selectedFolderPath: folderPath
       },
       () => {
         if (chrome.runtime.lastError) {
@@ -320,18 +388,48 @@ const OptionsApp = () => {
               value={saveMethod}
               onChange={(e) => setSaveMethod(e.target.value)}
             >
+              <option value="filesystem">Direct Save (File System Access API)</option>
               <option value="auto">Auto (Try all methods)</option>
-              <option value="downloads">Downloads API (Recommended)</option>
+              <option value="downloads">Downloads API</option>
               <option value="advanced-uri">Advanced URI Plugin</option>
               <option value="clipboard">Clipboard (Manual paste)</option>
             </select>
             <p className="text-gray-400 mt-2 text-sm">
-              {saveMethod === "downloads" ? "Files will be saved to your Downloads folder. You can then move them to your Obsidian vault." : 
+              {saveMethod === "filesystem" ? "Saves files directly to your chosen Obsidian vault folder. Requires folder selection below." :
+               saveMethod === "downloads" ? "Files will be saved to your Downloads folder. You can then move them to your Obsidian vault." : 
                saveMethod === "advanced-uri" ? "Requires the Advanced URI plugin to be installed in Obsidian." :
                saveMethod === "clipboard" ? "Content will be copied to clipboard. You'll need to paste manually in Obsidian." :
-               saveMethod === "auto" ? "Tries Downloads API first, then Advanced URI, then falls back to clipboard." : ""}
+               saveMethod === "auto" ? "Tries File System API first, then Downloads API, then Advanced URI, then falls back to clipboard." : ""}
             </p>
           </div>
+
+          {(saveMethod === "filesystem" || saveMethod === "auto") && (
+            <div className="my-6">
+              <label className="text-white text-lg">
+                Obsidian Vault Folder{" "}
+                <span className="text-gray-500 text-base">
+                  ( Select your Obsidian vault folder for direct saving )
+                </span>
+              </label>
+              <div className="flex items-center mt-2">
+                <button
+                  type="button"
+                  onClick={handleSelectFolder}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md"
+                >
+                  Select Vault Folder
+                </button>
+                {folderPath && (
+                  <span className="ml-4 text-gray-400">
+                    Selected: {folderPath}
+                  </span>
+                )}
+              </div>
+              <p className="text-gray-400 mt-2 text-sm">
+                This folder should be your Obsidian vault root directory. Files will be saved directly here.
+              </p>
+            </div>
+          )}
 
           {(saveMethod === "downloads" || saveMethod === "auto") && (
             <div className="my-6">
@@ -411,6 +509,62 @@ const OptionsApp = () => {
 
           <div className="my-6">
             <label className="text-white text-lg">
+              Advanced Template Settings
+            </label>
+            <div className="mt-3 space-y-3">
+              <div className="flex items-center">
+                <input
+                  type="checkbox"
+                  id="includeMetadata"
+                  className="mr-2"
+                  checked={chatNoteFormat.includes('metadata')}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setChatNoteFormat(prev => prev.replace('---\n', '---\nmetadata:\n  model: {model}\n  tokens: {tokens}\n  exported: {timestamp}\n'));
+                    } else {
+                      setChatNoteFormat(prev => prev.replace(/metadata:[\s\S]*?exported: \{timestamp\}\n/g, ''));
+                    }
+                  }}
+                />
+                <label htmlFor="includeMetadata" className="text-gray-400">Include metadata section</label>
+              </div>
+              <div className="flex items-center">
+                <input
+                  type="checkbox"
+                  id="includeLinks"
+                  className="mr-2"
+                  checked={chatNoteFormat.includes('[[Daily Notes]]')}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setChatNoteFormat(prev => prev + '\n\n## Links\n- [[Daily Notes/{date}]]\n- [[AI Conversations]]\n');
+                    } else {
+                      setChatNoteFormat(prev => prev.replace(/\n\n## Links[\s\S]*?\]\]\n/g, ''));
+                    }
+                  }}
+                />
+                <label htmlFor="includeLinks" className="text-gray-400">Add Obsidian wiki links</label>
+              </div>
+              <div className="flex items-center">
+                <input
+                  type="checkbox"
+                  id="includeFooter"
+                  className="mr-2"
+                  checked={chatNoteFormat.includes('---\n\n*Generated')}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setChatNoteFormat(prev => prev + '\n\n---\n\n*Generated by ChatVault Clip on {timestamp}*');
+                    } else {
+                      setChatNoteFormat(prev => prev.replace(/\n\n---\n\n\*Generated[\s\S]*?\*/g, ''));
+                    }
+                  }}
+                />
+                <label htmlFor="includeFooter" className="text-gray-400">Add generation footer</label>
+              </div>
+            </div>
+          </div>
+
+          <div className="my-6">
+            <label className="text-white text-lg">
               Preview Settings
             </label>
             <div className="flex items-center mt-2">
@@ -446,14 +600,45 @@ const OptionsApp = () => {
                 ( Available: {"{title}"}, {"{url}"}, {"{date}"}, {"{service}"}, {"{content}"} )
               </span>
             </label>
+            <div className="flex gap-2 mt-2 mb-2">
+              <button
+                type="button"
+                onClick={() => setChatNoteFormat('---\ntitle: {title}\ndate: {date}\nservice: {service}\nurl: {url}\n---\n\n{content}')}
+                className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded-md"
+              >
+                Default Template
+              </button>
+              <button
+                type="button"
+                onClick={() => setChatNoteFormat('---\ntitle: {title}\ndate: {date}\nservice: {service}\nurl: {url}\ntags: [ai-chat, {service}]\n---\n\n# {title}\n\n{content}')}
+                className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded-md"
+              >
+                With Tags
+              </button>
+              <button
+                type="button"
+                onClick={() => setChatNoteFormat('# {title}\n\n- **Date**: {date}\n- **Service**: {service}\n- **URL**: [{url}]({url})\n\n---\n\n{content}')}
+                className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded-md"
+              >
+                Simple
+              </button>
+            </div>
             <textarea
-              className="w-full px-4 py-2 mt-2 rounded-md bg-zinc-700 text-white text-lg font-mono"
-              rows="6"
+              className="w-full px-4 py-2 rounded-md bg-zinc-700 text-white text-lg font-mono"
+              rows="8"
               value={chatNoteFormat}
               onChange={(e) => setChatNoteFormat(e.target.value)}
             />
-            <div className="mt-2 text-gray-500 text-sm">
-              <p>💡 Tip: Use frontmatter format for better Obsidian integration</p>
+            <div className="mt-3 p-3 bg-zinc-800 rounded-md">
+              <p className="text-sm font-medium text-gray-300 mb-2">Template Variables:</p>
+              <div className="grid grid-cols-2 gap-2 text-xs text-gray-400">
+                <div><code className="bg-zinc-700 px-1 rounded">{"{title}"}</code> - Conversation title</div>
+                <div><code className="bg-zinc-700 px-1 rounded">{"{date}"}</code> - Current date (YYYY-MM-DD)</div>
+                <div><code className="bg-zinc-700 px-1 rounded">{"{service}"}</code> - ChatGPT or Claude</div>
+                <div><code className="bg-zinc-700 px-1 rounded">{"{url}"}</code> - Original chat URL</div>
+                <div><code className="bg-zinc-700 px-1 rounded">{"{content}"}</code> - Message content</div>
+                <div><code className="bg-zinc-700 px-1 rounded">{"{timestamp}"}</code> - Full timestamp</div>
+              </div>
             </div>
           </div>
         </div>
