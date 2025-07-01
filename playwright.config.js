@@ -41,10 +41,5 @@ module.exports = defineConfig({
     },
   ],
 
-  /* ローカル開発サーバー設定 */
-  webServer: {
-    command: 'npm run dev:chromium',
-    port: 3000,
-    reuseExistingServer: !process.env.CI,
-  },
+  /* Chrome拡張機能テストではwebServerは不要 */
 }); 

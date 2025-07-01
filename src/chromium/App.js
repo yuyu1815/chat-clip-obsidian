@@ -1,8 +1,10 @@
 /* global chrome */
 import "./App.css";
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, Suspense } from "react";
 import ChatModeSelector from "./components/ChatModeSelector";
-import MarkdownPreview from "./components/MarkdownPreview";
+
+// Lazy load MarkdownPreview to reduce initial bundle size
+const MarkdownPreview = React.lazy(() => import("./components/MarkdownPreview"));
 
 function App() {
   // Original state
@@ -429,11 +431,19 @@ url: ${pageInfo.url}
       
       {showPreview && isOnChatPage && (
         <div className="p-4 pt-0">
-          <MarkdownPreview 
-            content={chatPreviewContent} 
-            isLoading={loading}
-            maxHeight="300px"
-          />
+          <Suspense fallback={
+            <div className="bg-gray-800 rounded-lg p-4 animate-pulse">
+              <div className="h-4 bg-gray-700 rounded w-3/4 mb-2"></div>
+              <div className="h-4 bg-gray-700 rounded w-full mb-2"></div>
+              <div className="h-4 bg-gray-700 rounded w-5/6"></div>
+            </div>
+          }>
+            <MarkdownPreview 
+              content={chatPreviewContent} 
+              isLoading={loading}
+              maxHeight="300px"
+            />
+          </Suspense>
         </div>
       )}
       
