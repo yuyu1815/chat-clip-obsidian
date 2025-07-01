@@ -41,7 +41,7 @@ class MarkdownConverter {
     // Handle inline code
     this.turndownService.addRule('inlineCode', {
       filter: function (node) {
-        return node.nodeName === 'CODE' && !node.parentNode || node.parentNode.nodeName !== 'PRE';
+        return node.nodeName === 'CODE' && node.parentNode && node.parentNode.nodeName !== 'PRE';
       },
       replacement: function (content) {
         return '`' + content + '`';
@@ -154,3 +154,9 @@ url: ${url}
 }
 
 export default MarkdownConverter;
+
+// CommonJS compatibility for testing
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = MarkdownConverter;
+  module.exports.default = MarkdownConverter;
+}

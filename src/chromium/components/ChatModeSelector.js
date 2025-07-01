@@ -73,15 +73,40 @@ const ChatModeSelector = ({ onModeChange, onCountChange, defaultMode = 'single',
 
   return (
     <div className="space-y-4">
-      <h3 className="text-lg font-semibold text-white mb-3">Save Mode</h3>
+      <h3 id="save-mode-heading" className="text-lg font-semibold text-white mb-3">Save Mode</h3>
       
-      <div className="grid grid-cols-2 gap-3">
+      <div 
+        className="grid grid-cols-2 gap-3"
+        role="radiogroup"
+        aria-labelledby="save-mode-heading"
+        aria-describedby="save-mode-description"
+      >
         {modes.map((mode) => (
           <button
             key={mode.id}
             onClick={() => handleModeSelect(mode.id)}
+            role="radio"
+            aria-checked={selectedMode === mode.id}
+            aria-describedby={`${mode.id}-description`}
+            tabIndex={selectedMode === mode.id ? 0 : -1}
+            onKeyDown={(e) => {
+              if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+                e.preventDefault();
+                const currentIndex = modes.findIndex(m => m.id === selectedMode);
+                const nextIndex = (currentIndex + 1) % modes.length;
+                handleModeSelect(modes[nextIndex].id);
+              } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                const currentIndex = modes.findIndex(m => m.id === selectedMode);
+                const prevIndex = (currentIndex - 1 + modes.length) % modes.length;
+                handleModeSelect(modes[prevIndex].id);
+              } else if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                handleModeSelect(mode.id);
+              }
+            }}
             className={`
-              relative p-4 rounded-lg border-2 transition-all duration-200
+              relative p-4 rounded-lg border-2 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-900
               ${selectedMode === mode.id 
                 ? 'border-blue-500 bg-blue-500/20 text-white' 
                 : 'border-gray-600 bg-gray-800 text-gray-300 hover:border-gray-500 hover:bg-gray-700'
@@ -89,11 +114,19 @@ const ChatModeSelector = ({ onModeChange, onCountChange, defaultMode = 'single',
             `}
           >
             <div className="flex flex-col items-center space-y-2">
-              <div className={`${selectedMode === mode.id ? 'text-blue-400' : 'text-gray-400'}`}>
+              <div 
+                className={`${selectedMode === mode.id ? 'text-blue-400' : 'text-gray-400'}`}
+                aria-hidden="true"
+              >
                 {mode.icon}
               </div>
               <div className="text-sm font-medium">{mode.name}</div>
-              <div className="text-xs text-gray-400 text-center">{mode.description}</div>
+              <div 
+                id={`${mode.id}-description`} 
+                className="text-xs text-gray-400 text-center"
+              >
+                {mode.description}
+              </div>
             </div>
             
             {selectedMode === mode.id && (
@@ -109,33 +142,46 @@ const ChatModeSelector = ({ onModeChange, onCountChange, defaultMode = 'single',
 
       {selectedMode === 'recent' && (
         <div className="mt-4 p-4 bg-gray-800 rounded-lg">
-          <label className="block text-sm font-medium text-gray-300 mb-2">
+          <label 
+            htmlFor="message-count-input" 
+            className="block text-sm font-medium text-gray-300 mb-2"
+          >
             Number of messages to save
           </label>
           <div className="flex items-center space-x-3">
             <input
+              id="message-count-input"
               type="number"
               min="1"
               max="100"
               value={messageCount}
               onChange={handleCountChange}
+              aria-describedby={!isCountValid ? "count-error" : "count-help"}
+              aria-invalid={!isCountValid}
               className={`
                 flex-1 px-3 py-2 bg-gray-700 border rounded-md text-white
-                focus:outline-none focus:ring-2 focus:ring-blue-500
+                focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800
                 ${!isCountValid ? 'border-red-500' : 'border-gray-600'}
               `}
             />
-            <span className="text-gray-400 text-sm">messages</span>
+            <span id="count-help" className="text-gray-400 text-sm" aria-live="polite">messages</span>
           </div>
           {!isCountValid && (
-            <p className="mt-1 text-xs text-red-400">Please enter a number between 1 and 100</p>
+            <p id="count-error" className="mt-1 text-xs text-red-400" role="alert">
+              Please enter a number between 1 and 100
+            </p>
           )}
         </div>
       )}
 
-      <div className="mt-4 p-3 bg-gray-800/50 rounded-lg">
+      <div id="save-mode-description" className="mt-4 p-3 bg-gray-800/50 rounded-lg">
         <div className="flex items-start space-x-2">
-          <svg className="w-4 h-4 text-blue-400 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+          <svg 
+            className="w-4 h-4 text-blue-400 mt-0.5" 
+            fill="currentColor" 
+            viewBox="0 0 20 20"
+            aria-hidden="true"
+          >
             <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
           </svg>
           <div className="text-xs text-gray-400">
@@ -149,3 +195,9 @@ const ChatModeSelector = ({ onModeChange, onCountChange, defaultMode = 'single',
 };
 
 export default ChatModeSelector;
+
+// CommonJS compatibility for testing
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = ChatModeSelector;
+  module.exports.default = ChatModeSelector;
+}
