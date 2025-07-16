@@ -528,12 +528,20 @@ console.log('[ChatVault] Content script loading...', window.location.href);
             newMessages.forEach(addSaveButton);
           }
         });
+        // NEW: Handle attribute changes that may indicate message visibility/update (SPA)
+        if (mutation.type === 'attributes' && mutation.target && mutation.target.matches) {
+          const targetEl = mutation.target;
+          if (targetEl.matches(selectors.container)) {
+            addSaveButton(targetEl);
+          }
+        }
       });
     }, DEBOUNCE_DELAY));
 
     observer.observe(document.body, {
       childList: true,
-      subtree: true
+      subtree: true,
+      attributes: true
     });
   }
 
