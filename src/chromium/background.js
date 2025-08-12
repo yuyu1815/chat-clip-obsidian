@@ -1,4 +1,8 @@
 /* global chrome */
+import { logger } from '../utils/logger.js';
+import { ErrorCodes, toUserMessage } from '../utils/errors.js';
+
+const log = logger.create('Background');
 
 // Handle extension installation
 chrome.runtime.onInstalled.addListener(function (details) {
@@ -151,15 +155,14 @@ async function handleSaveMessage(request, sender, sendResponse) {
       ], resolve);
     });
     
-    console.log('[ChatVault Background] 🔧 Settings:', settings);
+    log.debug('Settings:', settings);
 
     const vaultName = settings.obsidianVault || 'MyVault';
     const chatFolderPath = settings.chatFolderPath || 'ChatVault/{service}';
     
     // Log the actual vault name to help debug
-    console.log('[ChatVault Background] 🏠 Vault name from settings:', settings.obsidianVault);
-    console.log('[ChatVault Background] 🏠 Using vault name:', vaultName);
-    console.log('[ChatVault Background] 📁 Chat folder path:', chatFolderPath);
+    log.info('Vault:', settings.obsidianVault, 'Using:', vaultName);
+    log.debug('Chat folder path:', chatFolderPath);
     
     // Create markdown content from message data
     const { messageContent, messageType, conversationTitle, service, metadata } = request;
@@ -233,18 +236,8 @@ source: text selection
     // Also create a test URI without content to see if that works
     const testUriWithoutContent = `obsidian://new?vault=${encodedVault}&file=${encodedFile}&content=${encodeURIComponent('Test content')}`;
     
-    console.log('[ChatVault Background] 🔗 Generated URI length:', obsidianUri.length);
-    console.log('[ChatVault Background] 🔗 URI preview:', obsidianUri.substring(0, 200) + '...');
-    console.log('[ChatVault Background] 📁 Full folder path:', fullFolderPath);
-    console.log('[ChatVault Background] 📝 Filename:', filename);
-    console.log('[ChatVault Background] 📝 Content length:', fullContent.length);
-    console.log('[ChatVault Background] 📝 Processed content length:', processedContent.length);
-    console.log('[ChatVault Background] 🏠 Vault name (encoded):', encodedVault);
-    console.log('[ChatVault Background] 🏠 Vault name (raw):', vaultName);
-    console.log('[ChatVault Background] 📝 Sanitized title:', sanitizedTitle);
-    console.log('[ChatVault Background] 📝 Original title:', conversationTitle);
-    console.log('[ChatVault Background] 🧪 Test URI (without content):', testUriWithoutContent);
-    console.log('[ChatVault Background] 🧪 Test URI length:', testUriWithoutContent.length);
+    log.debug('URI length:', obsidianUri.length);
+    log.debug('Folder:', fullFolderPath, 'Filename:', filename);
     
     // Log content sample for debugging
     console.log('[ChatVault Background] 📄 Content sample (first 200 chars):', processedContent.substring(0, 200));
@@ -252,22 +245,18 @@ source: text selection
     
     // Alert user about vault name
     if (vaultName === 'MyVault') {
-      console.warn('[ChatVault Background] ⚠️ Using default vault name "MyVault". Please set your actual vault name in options!');
+      log.warn('Using default vault name "MyVault". Please set your actual vault name in options!');
     }
     
     // Test URI by copying to clipboard for manual testing
-    console.log('[ChatVault Background] 📋 Full URI for testing:', obsidianUri);
+    log.debug('URI for testing:', obsidianUri);
     
     // IMPORTANT: The native Obsidian URI scheme has a known issue where content parameter
     // doesn't work reliably - it creates the file but doesn't add content
     // We'll try multiple methods in order of preference
     const USE_DOWNLOADS_API = true; // Try Downloads API first for better UX
     
-    console.log('[ChatVault Background] 🔍 URI method check:', {
-      uriLength: obsidianUri.length,
-      useDownloadsAPI: USE_DOWNLOADS_API,
-      reason: 'Native Obsidian URI content parameter is unreliable'
-    });
+    log.debug('URI method check', { uriLength: obsidianUri.length, useDownloadsAPI: USE_DOWNLOADS_API });
     
     // Try Advanced URI plugin format first (if user has it installed)
     // Try both methods: with base64 and without
@@ -282,9 +271,7 @@ source: text selection
     // Prefer text method over base64 data method (better compatibility)
     const advancedUri = advancedUriText;
     const uriMethod = 'text';
-    console.log('[ChatVault Background] 🎆 Advanced URI format (requires plugin):', advancedUri.substring(0, 200) + '...');
-    console.log('[ChatVault Background] 📊 Advanced URI length:', advancedUri.length);
-    console.log('[ChatVault Background] 🔧 Advanced URI method:', uriMethod);
+    log.debug('Advanced URI length:', advancedUri.length, 'method:', uriMethod);
     
     // Save method selection based on user preferences and content size
     const ADVANCED_URI_LIMIT = 30000; // Advanced URI can handle longer URLs
@@ -300,7 +287,7 @@ source: text selection
       });
     });
     
-    console.log('[ChatVault Background] 💾 Save preferences:', savePreferences);
+    log.debug('Save preferences:', savePreferences);
     
     // Try File System Access API first if configured
     if (savePreferences.method === 'filesystem' || savePreferences.method === 'auto') {
@@ -558,7 +545,9 @@ source: text selection
           console.error('[ChatVault Background] ❌ Clipboard error:', chrome.runtime.lastError);
           sendResponse({ 
             success: false, 
-            error: chrome.runtime.lastError.message
+            error: chrome.runtime.lastError.message,
+            errorCode: 'CLIPBOARD_FAILED',
+            userMessage: 'クリップボードへのコピーに失敗しました。再度お試しください。'
           });
         } else {
           console.log('[ChatVault Background] ✅ Clipboard success, now opening Obsidian...');
@@ -573,7 +562,9 @@ source: text selection
               console.error('[ChatVault Background] ❌ Failed to open Obsidian:', chrome.runtime.lastError);
               sendResponse({ 
                 success: false, 
-                error: 'Failed to open Obsidian: ' + chrome.runtime.lastError.message
+                error: 'Failed to open Obsidian: ' + chrome.runtime.lastError.message,
+                errorCode: 'SAVE_FAILED',
+                userMessage: '保存に失敗しました。コンソールのログを確認してください。'
               });
               return;
             }

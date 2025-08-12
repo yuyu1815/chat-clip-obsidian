@@ -1,5 +1,9 @@
 /* global chrome */
 import React, { useState, useEffect } from "react";
+import { toast } from "../utils/toast.js";
+import { logger } from "../utils/logger.js";
+
+const log = logger.create('Options');
 
 const OptionsApp = () => {
 
@@ -29,7 +33,7 @@ const OptionsApp = () => {
   const defaultNoteContentFormat = "{url}\n\n{content}";
 
   useEffect(() => {
-    console.log('[ChatVault Options] 🔄 Loading settings from storage...');
+    log.info('Loading settings from storage...');
     
     // Load the settings from browser storage
     chrome.storage.sync.get(
@@ -52,12 +56,12 @@ const OptionsApp = () => {
         "selectedFolderPath"
       ],
       (result) => {
-        console.log('[ChatVault Options] 📞 Loaded settings:', result);
+        log.debug('Loaded settings:', result);
         if (result.obsidianVault) {
-          console.log('[ChatVault Options] 🏠 Setting vault:', result.obsidianVault);
+          log.debug('Setting vault:', result.obsidianVault);
           setVault(result.obsidianVault);
         } else {
-          console.log('[ChatVault Options] ⚠️ No vault found in storage');
+          log.warn('No vault found in storage');
         }
         if (result.folderPath) {
           setFolder(result.folderPath);
@@ -105,7 +109,7 @@ const OptionsApp = () => {
 
   const handleSelectFolder = async () => {
     try {
-      console.log('[ChatVault Options] 📁 Opening folder picker...');
+      log.info('Opening folder picker...');
       // Check if File System Access API is available
       if (!('showDirectoryPicker' in window)) {
         alert('File System Access APIはサポートされていません。Chrome 86+またはEdge 86+を使用してください。');
@@ -118,13 +122,13 @@ const OptionsApp = () => {
         startIn: 'documents'
       });
       
-      console.log('[ChatVault Options] 📁 Folder selected:', dirHandle.name);
+      log.info('Folder selected:', dirHandle.name);
       setSelectedFolder(dirHandle);
       setFolderPath(dirHandle.name);
       
       // Store folder path in chrome storage
       chrome.storage.sync.set({ selectedFolderPath: dirHandle.name }, () => {
-        console.log('[ChatVault Options] 💾 Folder path saved to storage');
+        log.debug('Folder path saved to storage');
       });
       
       // Store the directory handle in IndexedDB for persistence
@@ -133,10 +137,10 @@ const OptionsApp = () => {
       
     } catch (err) {
       if (err.name === 'AbortError') {
-        console.log('[ChatVault Options] 📁 Folder selection cancelled');
+        log.info('Folder selection cancelled');
       } else {
-        console.error('[ChatVault Options] ❌ Error selecting folder:', err);
-        alert('フォルダ選択エラー: ' + err.message);
+        log.error('Error selecting folder:', err);
+        toast.show('フォルダ選択エラー: ' + err.message, 'error');
       }
     }
   };
@@ -166,8 +170,8 @@ const OptionsApp = () => {
   };
 
   const handleSave = () => {
-    console.log('[ChatVault Options] 🔥 handleSave called');
-    console.log('[ChatVault Options] 📝 Current state:', {
+    log.info('handleSave called');
+    log.debug('Current state:', {
       vault: vault,
       folder: folder,
       showChatSettings: showChatSettings,
@@ -176,19 +180,15 @@ const OptionsApp = () => {
     
     // Check if the required fields are empty
     if (vault.trim() === "" || folder.trim() === "") {
-      console.error('[ChatVault Options] ❌ Required fields empty');
-      alert(
-        "Obsidian Vault名と基本フォルダ名の両方を入力してください。"
-      );
+      log.warn('Required fields empty');
+      toast.show('Obsidian Vault名と基本フォルダ名の両方を入力してください。', 'error');
       return;
     }
 
     const invalidCharacterPattern = /[\\:*?"<>|]/;
 
     if (invalidCharacterPattern.test(vault)) {
-      alert(
-        "無効な文字が検出されました。Vault名には次の文字を使用しないでください: /, \\, :, *, ?, \", <, >, |"
-      );
+      toast.show('無効な文字が検出されました。Vault名には次の文字を使用しないでください: /, \\, :, *, ?, \", <, >, |', 'error');
       return;
     }
 
@@ -196,7 +196,7 @@ const OptionsApp = () => {
     if (showChatSettings) {
       const chatFolderPattern = /\{(title|service|date)\}/;
       if (!chatFolderPattern.test(chatFolderPath)) {
-        alert("チャットフォルダパスには、少なくとも1つのプレースホルダー（{title}、{service}、または{date}）を含める必要があります");
+        toast.show('チャットフォルダパスには、少なくとも1つのプレースホルダー（{title}、{service}、または{date}）を含める必要があります', 'error');
         return;
       }
     }
@@ -225,12 +225,10 @@ const OptionsApp = () => {
       },
       () => {
         if (chrome.runtime.lastError) {
-          console.error(`Error: ${chrome.runtime.lastError}`);
+          log.error('Error saving settings:', chrome.runtime.lastError);
+          toast.show('設定の保存に失敗しました: ' + chrome.runtime.lastError.message, 'error');
         } else {
-          alert(
-            `設定を保存しました！🎉\n\nチャットメッセージは次のフォルダに保存されます: "${chatFolderPath}"`
-          );
-          
+          toast.show(`設定を保存しました。保存先: "${chatFolderPath}"`, 'success');
           // Notify content scripts to update
           chrome.runtime.sendMessage({ action: 'saveSettings', settings: {} });
         }

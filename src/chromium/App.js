@@ -1,10 +1,14 @@
 /* global chrome */
 import "./App.css";
 import React, { useState, useEffect, useRef, Suspense } from "react";
+import { toast } from "../utils/toast.js";
+import { logger } from "../utils/logger.js";
 import ChatModeSelector from "./components/ChatModeSelector";
 
 // Lazy load MarkdownPreview to reduce initial bundle size
 const MarkdownPreview = React.lazy(() => import("./components/MarkdownPreview"));
+
+const log = logger.create('Popup');
 
 function App() {
   // Original state
@@ -87,7 +91,7 @@ function App() {
           setMode('single');
         }
       } catch (error) {
-        console.error("Error getting page info: ", error);
+        log.error("Error getting page info: ", error);
       } finally {
         setLoading(false);
       }
@@ -136,7 +140,7 @@ function App() {
           }
         });
       } catch (error) {
-        console.error("Error loading settings: ", error);
+        log.error("Error loading settings: ", error);
       } finally {
         setLoading(false);
       }
@@ -268,10 +272,8 @@ url: ${pageInfo.url}
             count: mode === 'recent' ? messageCount : undefined
           }, (response) => {
             if (chrome.runtime.lastError) {
-              setNotification({ 
-                type: 'error', 
-                message: 'Failed to save: ' + chrome.runtime.lastError.message 
-              });
+              setNotification({ type: 'error', message: 'Failed to save: ' + chrome.runtime.lastError.message });
+              toast.show('保存に失敗しました: ' + chrome.runtime.lastError.message, 'error');
               return;
             }
             
@@ -299,13 +301,13 @@ url: ${pageInfo.url}
               }
               
               setNotification({ type: 'success', message: message });
+              toast.show(message, 'success');
               
               setTimeout(() => window.close(), response.method === 'clipboard' ? 2500 : 1500);
             } else {
-              setNotification({ 
-                type: 'error', 
-                message: response?.error || 'Failed to save chat' 
-              });
+              const msg = response?.userMessage || (response?.error ? '保存に失敗しました: ' + response.error : 'Failed to save chat');
+              setNotification({ type: 'error', message: msg });
+              toast.show(msg, 'error');
             }
           });
         }

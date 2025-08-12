@@ -2,8 +2,12 @@
 // This script is injected into ChatGPT and Claude pages to add save buttons
 
 import ClaudeService from '../services/claude.js';
+import { toast } from '../utils/toast.js';
+import { logger } from '../utils/logger.js';
+import { ErrorCodes, toUserMessage } from '../utils/errors.js';
 
-console.log('[ChatVault] Content script loading...', window.location.href);
+const log = logger.create('Content');
+log.info('Content script loading...', window.location.href);
 
 (function() {
   'use strict';
@@ -28,7 +32,7 @@ console.log('[ChatVault] Content script loading...', window.location.href);
     }
   }, true);
   
-  console.log('[ChatVault] Content script executing...');
+  log.info('Content script executing...');
 
   // Configuration
   const BUTTON_SELECTOR = '.chatvault-save-btn';
@@ -36,9 +40,9 @@ console.log('[ChatVault] Content script loading...', window.location.href);
   
   // Service detection
   const service = detectService();
-  console.log('[ChatVault] Detected service:', service);
+  log.info('Detected service:', service);
   if (!service) {
-    console.log('[ChatVault] No supported service detected, exiting');
+    log.warn('No supported service detected, exiting');
     return;
   }
   
@@ -46,7 +50,7 @@ console.log('[ChatVault] Content script loading...', window.location.href);
   let claudeService = null;
   if (service === 'claude') {
     claudeService = new ClaudeService();
-    console.log('[ChatVault] Claude service initialized');
+    log.info('Claude service initialized');
   }
   
   // Rate limiting for DOM operations
@@ -64,7 +68,7 @@ console.log('[ChatVault] Content script loading...', window.location.href);
       try {
         fn.apply(this, args);
       } catch (error) {
-        console.error('[ChatVault] Throttled operation error:', error);
+        log.error('Throttled operation error:', error);
       }
       
       // Process queue
@@ -149,7 +153,7 @@ console.log('[ChatVault] Content script loading...', window.location.href);
       }
     }
 
-    console.log('[ChatVault] Adding save button to message element:', messageElement);
+    log.debug('Adding save button to message element:', messageElement);
 
     const button = createSaveButton();
     let buttonAdded = false;
@@ -187,7 +191,7 @@ console.log('[ChatVault] Content script loading...', window.location.href);
         
         contentElement.appendChild(button);
         buttonAdded = true;
-        console.log('[ChatVault] Button added to ChatGPT content end:', contentElement);
+          log.debug('Button added to ChatGPT content end:', contentElement);
       }
     } else if (service === 'claude') {
       // Claudeの場合、メッセージ末尾にボタンを配置
@@ -215,7 +219,7 @@ console.log('[ChatVault] Content script loading...', window.location.href);
         const lastTextNode = messageContent.querySelector('p:last-child') || messageContent;
         lastTextNode.appendChild(button);
         buttonAdded = true;
-        console.log('[ChatVault] Button added to user message end:', lastTextNode);
+        log.debug('Button added to user message end:', lastTextNode);
       } else if (messageElement.matches('[data-is-streaming]')) {
         // アシスタントメッセージの場合、メッセージコンテンツの末尾に追加
         const messageContent = messageElement.querySelector('.font-claude-message');
@@ -225,14 +229,14 @@ console.log('[ChatVault] Content script loading...', window.location.href);
           const lastElement = paragraphs[paragraphs.length - 1] || messageContent;
           lastElement.appendChild(button);
           buttonAdded = true;
-          console.log('[ChatVault] Button added to assistant message end:', lastElement);
+           log.debug('Button added to assistant message end:', lastElement);
         }
       }
     }
 
     // Fallback to original positioning if content area not found
     if (!buttonAdded) {
-      console.warn('[ChatVault] Could not find content area, using fallback positioning');
+      log.warn('Could not find content area, using fallback positioning');
       messageElement.style.position = 'relative';
       button.style.position = 'absolute';
       button.style.top = '10px';
@@ -245,9 +249,9 @@ console.log('[ChatVault] Content script loading...', window.location.href);
     button.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      console.log('[ChatVault] 🔥 SAVE BUTTON CLICKED!', messageElement);
-      console.log('[ChatVault] Service:', service);
-      console.log('[ChatVault] Current URL:', window.location.href);
+      log.info('SAVE BUTTON CLICKED!', messageElement);
+      log.debug('Service:', service);
+      log.debug('Current URL:', window.location.href);
       
       // Add visual feedback using CSS classes
       button.classList.add('chatvault-saving');
@@ -256,8 +260,8 @@ console.log('[ChatVault] Content script loading...', window.location.href);
       try {
         handleSaveClick(messageElement);
       } catch (error) {
-        console.error('[ChatVault] ❌ Error in handleSaveClick:', error);
-        alert('Error: ' + error.message);
+        log.error('Error in handleSaveClick:', error);
+        toast.show('エラー: ' + error.message, 'error');
         button.classList.remove('chatvault-saving');
         button.classList.add('chatvault-error');
         button.disabled = false;
@@ -270,8 +274,8 @@ console.log('[ChatVault] Content script loading...', window.location.href);
 
   // Handle save button click
   async function handleSaveClick(messageElement) {
-    console.log('[ChatVault] 🚀 handleSaveClick called for:', messageElement);
-    console.log('[ChatVault] 🔍 Message element details:', {
+    log.debug('handleSaveClick called for:', messageElement);
+    log.debug('Message element details:', {
       tagName: messageElement.tagName,
       className: messageElement.className,
       textContent: messageElement.textContent?.substring(0, 100) + '...'
@@ -283,15 +287,15 @@ console.log('[ChatVault] Content script loading...', window.location.href);
       let messageData;
       
       if (service === 'chatgpt') {
-        console.log('[ChatVault] 🔍 Extracting ChatGPT message...');
+        log.debug('Extracting ChatGPT message...');
         
         // Simplified extraction for debugging
         const messageText = messageElement.textContent || messageElement.innerText || 'No text found';
-        console.log('[ChatVault] 📝 Message text (first 200 chars):', messageText.substring(0, 200));
+        log.debug('Message text (first 200 chars):', messageText.substring(0, 200));
         
         // Try to determine if it's a user message
         const isUser = messageElement.getAttribute('data-message-author-role') === 'user';
-        console.log('[ChatVault] 👤 Is user message:', isUser);
+        log.debug('Is user message:', isUser);
         
         messageData = {
           messageContent: `### ${isUser ? 'User' : 'Assistant'}\n\n${messageText}`,
@@ -300,10 +304,10 @@ console.log('[ChatVault] Content script loading...', window.location.href);
           service: service
         };
         
-        console.log('[ChatVault] 📦 Prepared message data:', messageData);
+        log.debug('Prepared message data:', messageData);
       } else if (service === 'claude' && claudeService) {
         // Claude用のメッセージ抽出（ClaudeServiceを使用）
-        console.log('[ChatVault] Extracting Claude message using ClaudeService');
+        log.debug('Extracting Claude message using ClaudeService');
         
         const extractedMessage = claudeService.extractSingleMessage(messageElement);
         if (!extractedMessage) {
@@ -320,7 +324,7 @@ console.log('[ChatVault] Content script loading...', window.location.href);
           service: service
         };
         
-        console.log('[ChatVault] Message data:', messageData);
+         log.debug('Message data:', messageData);
       } else {
         // Fallback to basic DOM extraction for other services
         const selectors = getSelectors();
@@ -342,7 +346,7 @@ console.log('[ChatVault] Content script loading...', window.location.href);
       }
       
       // Send to background script
-      console.log('[ChatVault] 📤 Sending message to background:', {
+      log.debug('Sending message to background:', {
         action: 'saveSingleMessage',
         ...messageData
       });
@@ -351,11 +355,11 @@ console.log('[ChatVault] Content script loading...', window.location.href);
         action: 'saveSingleMessage',
         ...messageData
       }, (response) => {
-        console.log('[ChatVault] 📥 Save response:', response);
+        log.info('Save response:', response);
         
         if (chrome.runtime.lastError) {
-          console.error('[ChatVault] ❌ Runtime error:', chrome.runtime.lastError);
-          alert('Runtime error: ' + chrome.runtime.lastError.message);
+          log.error('Runtime error:', chrome.runtime.lastError);
+          toast.show('保存に失敗しました: ' + chrome.runtime.lastError.message, 'error');
           return;
         }
         if (response && response.success) {
@@ -368,17 +372,18 @@ console.log('[ChatVault] Content script loading...', window.location.href);
               button.classList.remove('chatvault-saved');
             }, 2000);
           }
-          console.log(`[ChatVault] Message saved via ${response.method}: ${response.filename}`);
-          if (response.method === 'clipboard') {
-            alert(`コンテンツがクリップボードにコピーされました！\n\nObsidianが開きます。新規ノート作成ダイアログで\nCtrl/Cmd+V でペーストしてください。\n\nファイル名: ${response.filename}\n\n※Advanced URIプラグインをインストールすると自動保存できます`);
-          } else if (response.method === 'advanced-uri') {
-            alert(`メッセージがObsidianに保存されました！\n（Advanced URI経由）\n\nファイル名: ${response.filename}`);
+          log.info(`Message saved via ${response.method}: ${response.filename}`);
+          if (response.message) {
+            toast.show(response.message, 'success');
+          } else if (response.method === 'clipboard') {
+            toast.show('コンテンツをクリップボードにコピーしました。Obsidianで貼り付けてください。', 'success');
           } else {
-            alert(`メッセージがObsidianに保存されました！\nファイル名: ${response.filename}`);
+            toast.show('メッセージを保存しました。', 'success');
           }
         } else {
-          console.error('[ChatVault] Failed to save message:', response?.error);
-          alert(`保存に失敗しました: ${response?.error || 'Unknown error'}`);
+          log.error('Failed to save message:', response?.error);
+          const msg = response?.userMessage || toUserMessage(response?.errorCode, response?.error);
+          toast.show(msg, 'error');
           if (button) {
             button.classList.remove('chatvault-saving');
             button.classList.add('chatvault-error');
@@ -391,7 +396,8 @@ console.log('[ChatVault] Content script loading...', window.location.href);
       });
       
     } catch (error) {
-      console.error('Error handling save click:', error);
+      log.error('Error handling save click:', error);
+      toast.show('エラー: ' + error.message, 'error');
     }
   }
 
@@ -400,8 +406,8 @@ console.log('[ChatVault] Content script loading...', window.location.href);
     const selectors = getSelectors();
     if (!selectors) return;
 
-    console.log(`[ChatVault] Starting message observation for ${service} with selectors:`, selectors);
-    console.log(`[ChatVault] Current URL: ${window.location.href}`);
+    log.info(`Starting message observation for ${service} with selectors:`, selectors);
+    log.debug(`Current URL: ${window.location.href}`);
 
     // Initial scan for existing messages
     let messages = document.querySelectorAll(selectors.container);
@@ -414,15 +420,15 @@ console.log('[ChatVault] Content script loading...', window.location.href);
       messages = Array.from(new Set(allMessages));
     }
     
-    console.log('[ChatVault] Found', messages.length, 'messages with primary selectors');
+    log.debug('Found', messages.length, 'messages with primary selectors');
     
     // Debug: クラウドのDOM構造を詳しく調査
     if (service === 'claude' && messages.length === 0) {
-      console.log('[ChatVault] No messages found, investigating Claude DOM...');
+      log.debug('No messages found, investigating Claude DOM...');
       
       // 会話エリアを探す
       const conversationContainers = document.querySelectorAll('main, [role="main"], div[class*="conversation"], div[class*="chat"]');
-      console.log('[ChatVault] Potential conversation containers:', conversationContainers.length);
+      log.debug('Potential conversation containers:', conversationContainers.length);
       
       // テキストを含む要素を探す
       const allDivs = document.querySelectorAll('div');
@@ -433,11 +439,11 @@ console.log('[ChatVault] Content script loading...', window.location.href);
                !div.querySelector('header') &&
                !div.matches('button, a, svg');
       });
-      console.log('[ChatVault] Message-like divs found:', messagelikeDivs.length);
+      log.debug('Message-like divs found:', messagelikeDivs.length);
       
       // 最初の数個を詳しく見る
       messagelikeDivs.slice(0, 3).forEach((div, index) => {
-        console.log(`[ChatVault] Potential message ${index}:`, {
+        log.debug(`Potential message ${index}:`, {
           classes: div.className,
           attributes: Array.from(div.attributes).map(attr => `${attr.name}="${attr.value}"`),
           textPreview: div.textContent?.substring(0, 100) + '...'
@@ -447,7 +453,7 @@ console.log('[ChatVault] Content script loading...', window.location.href);
     
     // If no messages found, try broader selectors but only in conversation area
     if (messages.length === 0) {
-      console.log('[ChatVault] No messages found, trying broader selectors...');
+      log.debug('No messages found, trying broader selectors...');
       if (service === 'chatgpt') {
         // Look specifically in the main conversation area
         const conversationArea = document.querySelector('main[role="main"], [role="main"], main, .conversation-turn');
@@ -460,14 +466,14 @@ console.log('[ChatVault] Content script loading...', window.location.href);
         // 会話エリア内のgroup.relativeクラスを持つ要素を検索
         const conversationArea = document.querySelector('main') || document.querySelector('[role="main"]') || document.body;
         messages = conversationArea.querySelectorAll('div.group.relative');
-        console.log('[ChatVault] Found group.relative elements:', messages.length);
+        log.debug('Found group.relative elements:', messages.length);
       }
-      console.log('[ChatVault] Found', messages.length, 'messages with broader selectors');
+      log.debug('Found', messages.length, 'messages with broader selectors');
     }
     
     // If still no messages, wait a bit and try again
     if (messages.length === 0) {
-      console.log('[ChatVault] Still no messages found, will retry in 2 seconds...');
+      log.debug('Still no messages found, will retry in 2 seconds...');
       setTimeout(() => {
         // Service-specific fallback selectors
         let retryMessages = [];
@@ -492,10 +498,10 @@ console.log('[ChatVault] Content script loading...', window.location.href);
           });
           
           retryMessages = messageParents;
-          console.log('[ChatVault] Claude fallback: found', retryMessages.length, 'message parents');
+          log.debug('Claude fallback: found', retryMessages.length, 'message parents');
         } else {
           retryMessages = document.querySelectorAll('div, article, section');
-          console.log('[ChatVault] General fallback: found', retryMessages.length, 'potential elements');
+          log.debug('General fallback: found', retryMessages.length, 'potential elements');
         }
         
         // Add buttons to any element that looks like it could be a message
@@ -1001,7 +1007,7 @@ console.log('[ChatVault] Content script loading...', window.location.href);
         // Add buttons to messages that don't have them yet
         messages.forEach(message => {
           if (!message.querySelector('.chatvault-save-btn')) {
-            console.log('[ChatVault] Adding button to message without one:', message);
+            log.debug('Adding button to message without one:', message);
             addSaveButton(message);
           }
         });
@@ -1009,14 +1015,14 @@ console.log('[ChatVault] Content script loading...', window.location.href);
         // If all messages have buttons, we're done
         if (existingButtons.length >= messages.length) {
           clearInterval(retryInterval);
-          console.log('[ChatVault] All messages have buttons, stopping retry');
+          log.debug('All messages have buttons, stopping retry');
         }
       }
       
       retryCount++;
       if (retryCount >= maxRetries) {
         clearInterval(retryInterval);
-        console.log('[ChatVault] Max retries reached');
+        log.debug('Max retries reached');
       }
     }, 500); // Reduced from 1000ms to 500ms for faster detection
   }
