@@ -324,7 +324,7 @@ const OptionsApp = () => {
               基本フォルダ名
             </label>
             <p className="text-sm text-gray-400 mb-2">
-              ( WebページをクリップするデフォルトのフォルダーLLM Chats/{service}/{title} )
+              ( Webページをクリップするデフォルトのフォルダー LLM Chats/{'{'}service{'}'}/{'{'}title{'}'} )
             </p>
             <input
               type="text"
@@ -360,7 +360,7 @@ const OptionsApp = () => {
                   チャットメッセージの保存先フォルダ
                 </label>
                 <p className="text-sm text-gray-400 mb-2">
-                  ( 使用可能なプレースホルダー: {service}, {title}, {date} )
+                  ( 使用可能なプレースホルダー: {'{service}'}, {'{title}'}, {'{date}'} )
                 </p>
                 <input
                   type="text"
@@ -368,7 +368,7 @@ const OptionsApp = () => {
                   className="w-full p-2 bg-gray-700 rounded border border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-400"
                   value={chatFolderPath}
                   onChange={(e) => setChatFolderPath(e.target.value)}
-                  placeholder="ChatVault/{service}/{title}"
+                  placeholder={"ChatVault/" + '{' + 'service' + '}' + "/" + '{' + 'title' + '}'}
                 />
               </div>
 
@@ -519,7 +519,7 @@ const OptionsApp = () => {
                   チャットノートフォーマット
                 </label>
                 <p className="text-sm text-gray-400 mb-2">
-                  ( 使用可能なプレースホルダー: {title}, {content}, {url}, {date}, {service} )
+                  ( 使用可能なプレースホルダー: {'{title}'}, {'{content}'}, {'{url}'}, {'{date}'}, {'{service}'} )
                 </p>
                 <div className="flex gap-2 my-2">
                     <button onClick={() => setChatNoteFormat('---\ntitle: {title}\ndate: {date}\nservice: {service}\nurl: {url}\n---\n\n{content}')} className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded-md">デフォルト</button>

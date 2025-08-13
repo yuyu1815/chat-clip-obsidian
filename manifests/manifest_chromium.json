@@ -19,6 +19,25 @@
     "https://gemini.google.com/*",
     "https://aistudio.google.com/*"
   ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "contentScript.css",
+        "workers/*.js",
+        "locales/**/*.json",
+        "i18n/**/*.json",
+        "logo48.png",
+        "logo128.png"
+      ],
+      "matches": [
+        "https://chat.openai.com/*",
+        "https://chatgpt.com/*",
+        "https://claude.ai/*",
+        "https://gemini.google.com/*",
+        "https://aistudio.google.com/*"
+      ]
+    }
+  ],
   "content_scripts": [
     {
       "matches": ["https://chat.openai.com/*", "https://chatgpt.com/*", "https://claude.ai/*", "https://gemini.google.com/*", "https://aistudio.google.com/*"],

@@ -121,12 +121,13 @@ log.info('Content script loading...', window.location.href);
       };
     } else if (service === 'claude') {
       // Claudeのメッセージ構造: ユーザーとアシスタントメッセージを別々に扱う
+      const sel = claudeService?.selectors || {};
       return {
-        // ユーザーメッセージの親要素（bg-bg-300背景）とアシスタントメッセージ要素
-        container: '[data-testid="user-message"]',  // まずはユーザーメッセージのみ
-        userMessage: '[data-testid="user-message"]',
-        assistantMessage: '[data-is-streaming]',
-        content: '.font-user-message, .font-claude-message'
+        // より堅牢なセレクタ（ClaudeServiceと揃える）
+        container: sel.messageContainer || '[data-testid="user-message"], [data-is-streaming], .font-claude-message, div.prose, div[class*="whitespace-pre-wrap"]'
+        , userMessage: sel.userMessage || '[data-testid="user-message"]'
+        , assistantMessage: sel.assistantMessage || '[data-is-streaming]'
+        , content: sel.messageContent || '.font-user-message, .font-claude-message, div.prose, div[class*="whitespace-pre-wrap"]'
       };
     } else if (service === 'gemini') {
       const sel = geminiService?.selectors || {};
@@ -140,29 +141,89 @@ log.info('Content script loading...', window.location.href);
     return null;
   }
 
+  // Resolve ideal insertion target for Claude (prefer disclaimer row; fallback to content end)
+  function getClaudeTargetEnd(messageElement) {
+    try {
+      const topContainer = (messageElement.closest && messageElement.closest('div.group.relative')) || messageElement;
+      const disclaimerAnchor = topContainer.querySelector('a[href*="support.anthropic.com"]');
+      if (disclaimerAnchor) {
+        let row = disclaimerAnchor.closest('div') || topContainer;
+        let current = row;
+        while (current && current !== topContainer && current !== document.body) {
+          if (current.classList && current.classList.contains('flex') && current.classList.contains('items-center')) {
+            row = current;
+            break;
+          }
+          current = current.parentElement;
+        }
+        return row;
+      }
+      const content = (messageElement.matches && messageElement.matches('.font-claude-message, div.prose, div[class*="whitespace-pre-wrap"]'))
+        ? messageElement
+        : messageElement.querySelector?.('.font-claude-message, div.prose, div[class*="whitespace-pre-wrap"]');
+      if (content) {
+        const paragraphs = content.querySelectorAll('p, div, pre, code');
+        return paragraphs[paragraphs.length - 1] || content;
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // Insert Claude save button at preferred spot (left of copy button if present)
+  function insertClaudeButtonAtPreferredSpot(button, messageElement) {
+    try {
+      const topContainer = (messageElement.closest && messageElement.closest('div.group.relative')) || messageElement;
+      const copyBtn = topContainer.querySelector('button[data-testid="action-bar-copy"]');
+      if (copyBtn && copyBtn.parentElement) {
+        // Place to the left of the copy button within the same row
+        copyBtn.parentElement.insertBefore(button, copyBtn);
+        return true;
+      }
+      // Fallback to target end (disclaimer row or content end)
+      const targetEnd = getClaudeTargetEnd(messageElement);
+      if (targetEnd) {
+        targetEnd.appendChild(button);
+        return true;
+      }
+    } catch (_) {
+      // ignore
+    }
+    return false;
+  }
+
   // Add save button to a message element
   function addSaveButton(messageElement) {
-    // Check if button already exists
-    if (messageElement.querySelector(BUTTON_SELECTOR)) return;
+    // 既存ボタンの扱い（Claudeは末尾へリポジショニング）
+    const existingButton = messageElement.querySelector(BUTTON_SELECTOR);
+    if (existingButton) {
+      if (service === 'claude') {
+        const placed = insertClaudeButtonAtPreferredSpot(existingButton, messageElement);
+        if (placed) {
+          log.debug('Repositioned Claude save button to preferred spot');
+        }
+      }
+      return;
+    }
 
-    // Claude専用: 実際のメッセージかどうかをチェック
+    // Claude専用: 実際のメッセージかどうかを緩く判定（UI変更に強く）
     if (service === 'claude') {
       // サイドバーやUI要素を除外
-      if (messageElement.closest('[data-testid="sidebar"]') || 
-          messageElement.closest('nav') || 
+      if (messageElement.closest('[data-testid="sidebar"]') ||
+          messageElement.closest('nav') ||
           messageElement.closest('header') ||
-          messageElement.matches('button') ||
-          messageElement.matches('svg') ||
-          messageElement.matches('a')) {
+          messageElement.matches('button, svg, a')) {
         return;
       }
-      
-      // メッセージ要素自体の場合はOK
-      const isUserMessage = messageElement.matches('[data-testid="user-message"]');
-      const isAssistantMessage = messageElement.hasAttribute('data-is-streaming');
-      
-      if (!isUserMessage && !isAssistantMessage) {
-        console.log('[ChatVault] Skipping non-message element:', messageElement);
+
+      // メッセージ容器 or コンテンツを内包していれば対象とする
+      const hasUserFlag = messageElement.matches('[data-testid="user-message"]') || !!messageElement.querySelector('[data-testid="user-message"]');
+      const hasAssistantFlag = messageElement.hasAttribute('data-is-streaming') || !!messageElement.querySelector('[data-is-streaming]');
+      const hasClaudeContent = messageElement.matches('.font-claude-message, div.prose, div[class*="whitespace-pre-wrap"]') || !!messageElement.querySelector('.font-claude-message, div.prose, div[class*="whitespace-pre-wrap"]');
+      const isMessageLike = hasUserFlag || hasAssistantFlag || hasClaudeContent;
+      if (!isMessageLike) {
+        log.debug('Skipping non-message element:', messageElement);
         return;
       }
     }
@@ -208,8 +269,7 @@ log.info('Content script loading...', window.location.href);
           log.debug('Button added to ChatGPT content end:', contentElement);
       }
     } else if (service === 'claude') {
-      // Claudeの場合、メッセージ末尾にボタンを配置
-      // Claude用のデフォルトスタイル（常に表示）
+      // Claudeの場合、メッセージ末尾にボタンを配置（常時表示気味）
       button.style.display = 'inline-flex';
       button.style.marginLeft = '8px';
       button.style.marginTop = '4px';
@@ -217,33 +277,42 @@ log.info('Content script loading...', window.location.href);
       button.style.opacity = '0.7';
       button.style.visibility = 'visible';
       button.style.transition = 'opacity 0.2s';
-      button.style.position = 'static'; // インライン配置
-      
-      // ホバー効果を追加
-      button.addEventListener('mouseenter', () => {
-        button.style.opacity = '1';
-      });
-      button.addEventListener('mouseleave', () => {
-        button.style.opacity = '0.7';
-      });
-      
-      if (messageElement.matches('[data-testid="user-message"]')) {
-        // ユーザーメッセージの場合、メッセージコンテンツの末尾に追加
-        const messageContent = messageElement.querySelector('.font-user-message') || messageElement;
-        const lastTextNode = messageContent.querySelector('p:last-child') || messageContent;
+      button.style.position = 'static';
+
+      // ホバー効果
+      button.addEventListener('mouseenter', () => { button.style.opacity = '1'; });
+      button.addEventListener('mouseleave', () => { button.style.opacity = '0.7'; });
+
+      // まずはアクションバーのコピー左に配置を試行
+      if (!buttonAdded) {
+        const placed = insertClaudeButtonAtPreferredSpot(button, messageElement);
+        if (placed) {
+          buttonAdded = true;
+          log.debug('Button added to Claude preferred spot (before copy)');
+        }
+      }
+
+      // ユーザー/アシスタントの両方に対応（ストリーミング終了後も）
+      const userContainer = messageElement.matches('[data-testid="user-message"]')
+        ? messageElement
+        : messageElement.querySelector?.('[data-testid="user-message"]');
+      const assistantContent = messageElement.matches('.font-claude-message, div.prose, div[class*="whitespace-pre-wrap"]')
+        ? messageElement
+        : messageElement.querySelector?.('.font-claude-message, div.prose, div[class*="whitespace-pre-wrap"]');
+
+      if (userContainer) {
+        const messageContent = userContainer.querySelector('.font-user-message') || userContainer;
+        const lastTextNode = messageContent.querySelector('p:last-child, div:last-child') || messageContent;
         lastTextNode.appendChild(button);
         buttonAdded = true;
         log.debug('Button added to user message end:', lastTextNode);
-      } else if (messageElement.matches('[data-is-streaming]')) {
-        // アシスタントメッセージの場合、メッセージコンテンツの末尾に追加
-        const messageContent = messageElement.querySelector('.font-claude-message');
-        if (messageContent) {
-          // メッセージの最後の段落または要素を探す
-          const paragraphs = messageContent.querySelectorAll('p, div');
-          const lastElement = paragraphs[paragraphs.length - 1] || messageContent;
-          lastElement.appendChild(button);
+      } else if (!buttonAdded) {
+        // アシスタント：サポート告知行があればそこへ、無ければ本文末尾
+        const targetEnd = getClaudeTargetEnd(messageElement) || assistantContent;
+        if (targetEnd) {
+          targetEnd.appendChild(button);
           buttonAdded = true;
-           log.debug('Button added to assistant message end:', lastElement);
+          log.debug('Button added to Claude target end:', targetEnd);
         }
       }
     } else if (service === 'gemini') {
@@ -272,19 +341,28 @@ log.info('Content script loading...', window.location.href);
       }
     }
 
-    // Fallback to original positioning if content area not found
+    // Fallback配置（Claudeでは思考領域に付かないようスキップ）
     if (!buttonAdded) {
-      log.warn('Could not find content area, using fallback positioning');
-      messageElement.style.position = 'relative';
-      button.style.position = 'absolute';
-      button.style.top = '10px';
-      button.style.right = '10px';
-      button.style.zIndex = '1000';
-      messageElement.appendChild(button);
+      if (service !== 'claude') {
+        log.warn('Could not find content area, using fallback positioning');
+        messageElement.style.position = 'relative';
+        button.style.position = 'absolute';
+        button.style.top = '10px';
+        button.style.right = '10px';
+        button.style.zIndex = '1000';
+        messageElement.appendChild(button);
+      } else {
+        // Claude: コンテンツ確定後に再試行
+        setTimeout(() => {
+          if (messageElement.isConnected && !messageElement.querySelector(BUTTON_SELECTOR)) {
+            addSaveButton(messageElement);
+          }
+        }, 800);
+      }
     }
 
     // Add click handler with enhanced debugging
-    button.addEventListener('click', (e) => {
+    button.addEventListener('click', async (e) => {
       e.preventDefault();
       e.stopPropagation();
       log.info('SAVE BUTTON CLICKED!', messageElement);
@@ -296,7 +374,9 @@ log.info('Content script loading...', window.location.href);
       button.disabled = true;
       
       try {
-        handleSaveClick(messageElement);
+        // Ensure directory handle up-front if File System method is preferred
+        await ensureDirectoryHandleIfNeeded();
+        await handleSaveClick(messageElement);
       } catch (error) {
         log.error('Error in handleSaveClick:', error);
         toast.show('エラー: ' + error.message, 'error');
@@ -745,6 +825,21 @@ log.info('Content script loading...', window.location.href);
               const newArtifacts = node.querySelectorAll ? node.querySelectorAll(artifactSelector) : [];
               newArtifacts.forEach(addSaveButtonToArtifact);
             }
+
+            // Claude: コンテンツが追記された場合にボタンを末尾へ再配置
+            if (service === 'claude') {
+              const container = (node.matches && node.matches(selectors.container))
+                ? node
+                : (node.closest ? node.closest(selectors.container) : null);
+              if (container) {
+                const btn = container.querySelector(BUTTON_SELECTOR);
+              const targetEnd = getClaudeTargetEnd(container);
+              if (btn && targetEnd && btn.parentElement !== targetEnd) {
+                targetEnd.appendChild(btn);
+                log.debug('Observer: Repositioned Claude save button to final output end');
+              }
+              }
+            }
           }
         });
         // NEW: Handle attribute changes that may indicate message visibility/update (SPA)
@@ -757,6 +852,15 @@ log.info('Content script loading...', window.location.href);
             const artifactSelector = claudeService.selectors.artifactContainer;
             if (targetEl.matches(artifactSelector)) {
               addSaveButtonToArtifact(targetEl);
+            }
+          }
+          // Claude: 属性変化時にも末尾へ再配置
+          if (service === 'claude' && targetEl.matches(selectors.container)) {
+            const btn = targetEl.querySelector(BUTTON_SELECTOR);
+            const targetEnd = getClaudeTargetEnd(targetEl);
+            if (btn && targetEnd && btn.parentElement !== targetEnd) {
+              targetEnd.appendChild(btn);
+              log.debug('Observer(attributes): Repositioned Claude save button to final output end');
             }
           }
         }
@@ -922,10 +1026,20 @@ log.info('Content script loading...', window.location.href);
     try {
       console.log('[ChatVault] Attempting File System Access API save...');
       
-      // Load the directory handle from IndexedDB
-      const dirHandle = await loadDirectoryHandle();
+      // Load the directory handle from IndexedDB (page origin)
+      let dirHandle = await loadDirectoryHandle();
       if (!dirHandle) {
-        throw new Error('No directory handle found. Please select a vault folder in the extension options.');
+        // Try to prompt the user to pick the vault directory on-demand (requires user gesture)
+        if (typeof window.showDirectoryPicker === 'function') {
+          try {
+            dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+            await saveDirectoryHandle(dirHandle);
+          } catch (e) {
+            throw new Error('Vaultフォルダが未設定です。オプションで設定するか、保存時に表示されるダイアログで許可してください。');
+          }
+        } else {
+          throw new Error('このブラウザはFile System Access APIをサポートしていません。オプションから別の保存方法を選択してください。');
+        }
       }
 
       // Verify permission
@@ -960,6 +1074,35 @@ log.info('Content script loading...', window.location.href);
     }
   }
 
+  // Try to ensure directory handle on user gesture if saveMethod prefers filesystem
+  async function ensureDirectoryHandleIfNeeded() {
+    try {
+      const prefs = await new Promise((resolve) => {
+        chrome.storage.sync.get(['saveMethod'], resolve);
+      });
+      const method = prefs?.saveMethod || 'filesystem';
+      if (method !== 'filesystem' && method !== 'auto') return;
+
+      // Check existing handle
+      const existing = await loadDirectoryHandle();
+      if (existing) {
+        const perm = await existing.queryPermission?.({ mode: 'readwrite' });
+        if (perm === 'granted') return;
+        const req = await existing.requestPermission?.({ mode: 'readwrite' });
+        if (req === 'granted') return;
+      }
+
+      // No handle or no permission: prompt user (must be in user gesture)
+      if (typeof window.showDirectoryPicker === 'function') {
+        const dir = await window.showDirectoryPicker({ mode: 'readwrite' });
+        await saveDirectoryHandle(dir);
+      }
+    } catch (e) {
+      // Non-fatal: background will fall back to other methods
+      log.warn('ensureDirectoryHandleIfNeeded skipped:', e);
+    }
+  }
+
   // Load directory handle from IndexedDB
   async function loadDirectoryHandle() {
     try {
@@ -981,6 +1124,23 @@ log.info('Content script loading...', window.location.href);
     } catch (error) {
       console.error('[ChatVault] Error loading directory handle:', error);
       return null;
+    }
+  }
+
+  // Save directory handle to IndexedDB (page origin)
+  async function saveDirectoryHandle(handle) {
+    try {
+      const db = await openDB();
+      const tx = db.transaction(['handles'], 'readwrite');
+      const store = tx.objectStore('handles');
+      await new Promise((resolve, reject) => {
+        const req = store.put(handle, 'vaultDirectory');
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
+      });
+      db.close();
+    } catch (error) {
+      console.error('[ChatVault] Error saving directory handle:', error);
     }
   }
 

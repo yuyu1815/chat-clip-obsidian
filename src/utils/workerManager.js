@@ -103,7 +103,16 @@ class WorkerManager {
 class TextSplitter {
   constructor() {
     this.workerManager = new WorkerManager();
-    this.workerPath = '/workers/textSplitter.js';
+    // Resolve to extension URL when available (content script context)
+    try {
+      if (typeof chrome !== 'undefined' && chrome.runtime?.getURL) {
+        this.workerPath = chrome.runtime.getURL('workers/textSplitter.js');
+      } else {
+        this.workerPath = '/workers/textSplitter.js';
+      }
+    } catch (_e) {
+      this.workerPath = '/workers/textSplitter.js';
+    }
   }
 
   /**
