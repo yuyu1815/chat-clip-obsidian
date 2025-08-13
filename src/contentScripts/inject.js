@@ -272,6 +272,64 @@ log.info('Content script loading...', window.location.href);
     });
   }
 
+  // Add save button to a Claude Artifact container
+  function addSaveButtonToArtifact(artifactContainer) {
+    try {
+      if (!artifactContainer || !artifactContainer.isConnected) return;
+      // Avoid duplicate buttons inside the same artifact container
+      if (artifactContainer.querySelector(BUTTON_SELECTOR)) return;
+
+      // Only for Claude service
+      if (service !== 'claude' || !claudeService) return;
+
+      const button = createSaveButton();
+      if (!button) return;
+
+      // Style for artifact button
+      button.style.display = 'inline-flex';
+      button.style.marginLeft = '8px';
+      button.style.marginTop = '4px';
+      button.style.verticalAlign = 'middle';
+      button.style.opacity = '0.7';
+      button.style.transition = 'opacity 0.2s';
+      button.addEventListener('mouseenter', () => (button.style.opacity = '1'));
+      button.addEventListener('mouseleave', () => (button.style.opacity = '0.7'));
+
+      // Prefer placing near title if exists; otherwise append to container end
+      const titleSelector = claudeService?.selectors?.artifactTitle;
+      const titleEl = titleSelector ? artifactContainer.querySelector(titleSelector) : null;
+      if (titleEl) {
+        // Insert after title element
+        titleEl.insertAdjacentElement('afterend', button);
+      } else {
+        artifactContainer.appendChild(button);
+      }
+
+      // Click handler routes to artifact extraction
+      button.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        log.info('ARTIFACT SAVE BUTTON CLICKED!', artifactContainer);
+        button.classList.add('chatvault-saving');
+        button.disabled = true;
+        try {
+          handleSaveClick(artifactContainer);
+        } catch (error) {
+          log.error('Error in handleSaveClick (artifact):', error);
+          toast.show('エラー: ' + error.message, 'error');
+          button.classList.remove('chatvault-saving');
+          button.classList.add('chatvault-error');
+          button.disabled = false;
+          setTimeout(() => button.classList.remove('chatvault-error'), 2000);
+        }
+      });
+
+      log.debug('Artifact button added:', artifactContainer);
+    } catch (error) {
+      log.error('Failed to add artifact save button:', error);
+    }
+  }
+
   // Handle save button click
   async function handleSaveClick(messageElement) {
     log.debug('handleSaveClick called for:', messageElement);
@@ -286,6 +344,89 @@ log.info('Content script loading...', window.location.href);
     try {
       let messageData;
       
+      // Claude Artifact: if the element itself is an artifact container, extract via ClaudeService
+      if (service === 'claude' && claudeService) {
+        const artifactSelector = claudeService?.selectors?.artifactContainer;
+        if (artifactSelector && messageElement.matches(artifactSelector)) {
+          log.debug('Detected artifact container. Extracting artifact...');
+          const artifact = await claudeService.extractArtifact(messageElement);
+          if (!artifact || !artifact.content) {
+            throw new Error('Artifact の抽出に失敗しました');
+          }
+          const conversationTitle = claudeService.getConversationTitle();
+
+          // 長文の場合は分割し、part/totalParts を付与して複数保存
+          let artifacts = [];
+          try {
+            artifacts = await claudeService.splitArtifactIfNeeded(artifact);
+          } catch (e) {
+            log.warn('Artifact split failed, falling back to single save:', e);
+            artifacts = [artifact];
+          }
+
+          if (!Array.isArray(artifacts) || artifacts.length === 0) {
+            artifacts = [artifact];
+          }
+
+          // ボタン状態は最後の保存結果で反映
+          let pending = artifacts.length;
+          let anyError = false;
+
+          artifacts.forEach((partArtifact) => {
+            const hasPartInfo = Number.isInteger(partArtifact.part) && Number.isInteger(partArtifact.totalParts);
+            const partSuffix = hasPartInfo ? ` (Part ${partArtifact.part}/${partArtifact.totalParts})` : '';
+
+            const perPartMessage = {
+              messageContent: `### Artifact: ${artifact.title}${partSuffix}\n\n${partArtifact.content}`,
+              messageType: 'artifact',
+              conversationTitle: conversationTitle,
+              service: service,
+              metadata: {
+                type: 'artifact',
+                artifactTitle: artifact.title,
+                artifactLanguage: partArtifact.language || artifact.language || '',
+                artifactFilename: partArtifact.filename || artifact.filename || '',
+                ...(hasPartInfo ? { part: partArtifact.part, totalParts: partArtifact.totalParts } : {})
+              }
+            };
+
+            log.debug('Sending artifact (possibly split) to background:', perPartMessage);
+            chrome.runtime.sendMessage({
+              action: 'saveSingleMessage',
+              ...perPartMessage
+            }, (response) => {
+              log.info('Artifact part save response:', response);
+              pending -= 1;
+              if (!response || !response.success) {
+                anyError = true;
+                const msg = response?.userMessage || toUserMessage(response?.errorCode, response?.error);
+                toast.show(msg || '保存に失敗しました。', 'error');
+              } else {
+                toast.show(response.message || 'Artifact を保存しました。', 'success');
+              }
+
+              if (pending === 0) {
+                if (button) {
+                  button.classList.remove('chatvault-saving');
+                  if (anyError) {
+                    button.classList.add('chatvault-error');
+                  } else {
+                    button.classList.add('chatvault-saved');
+                  }
+                  button.disabled = false;
+                  setTimeout(() => {
+                    button.classList.remove('chatvault-saved');
+                    button.classList.remove('chatvault-error');
+                  }, 2000);
+                }
+              }
+            });
+          });
+
+          return; // Artifact 処理はここで終了
+        }
+      }
+
       if (service === 'chatgpt') {
         log.debug('Extracting ChatGPT message...');
         
@@ -520,6 +661,14 @@ log.info('Content script loading...', window.location.href);
     
     messages.forEach(addSaveButton);
 
+    // Initial scan for artifact containers on Claude
+    if (service === 'claude' && claudeService?.selectors?.artifactContainer) {
+      const artifactSelector = claudeService.selectors.artifactContainer;
+      const artifacts = document.querySelectorAll(artifactSelector);
+      log.debug('Found artifact containers:', artifacts.length);
+      artifacts.forEach(addSaveButtonToArtifact);
+    }
+
     // Set up mutation observer for new messages
     const observer = new MutationObserver(debounce((mutations) => {
       mutations.forEach((mutation) => {
@@ -532,6 +681,16 @@ log.info('Content script loading...', window.location.href);
             // Check if the added node contains messages
             const newMessages = node.querySelectorAll ? node.querySelectorAll(selectors.container) : [];
             newMessages.forEach(addSaveButton);
+
+            // Artifact containers on Claude
+            if (service === 'claude' && claudeService?.selectors?.artifactContainer) {
+              const artifactSelector = claudeService.selectors.artifactContainer;
+              if (node.matches && node.matches(artifactSelector)) {
+                addSaveButtonToArtifact(node);
+              }
+              const newArtifacts = node.querySelectorAll ? node.querySelectorAll(artifactSelector) : [];
+              newArtifacts.forEach(addSaveButtonToArtifact);
+            }
           }
         });
         // NEW: Handle attribute changes that may indicate message visibility/update (SPA)
@@ -539,6 +698,12 @@ log.info('Content script loading...', window.location.href);
           const targetEl = mutation.target;
           if (targetEl.matches(selectors.container)) {
             addSaveButton(targetEl);
+          }
+          if (service === 'claude' && claudeService?.selectors?.artifactContainer) {
+            const artifactSelector = claudeService.selectors.artifactContainer;
+            if (targetEl.matches(artifactSelector)) {
+              addSaveButtonToArtifact(targetEl);
+            }
           }
         }
       });

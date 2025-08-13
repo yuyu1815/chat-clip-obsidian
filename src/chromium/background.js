@@ -167,6 +167,7 @@ async function handleSaveMessage(request, sender, sendResponse) {
     // Create markdown content from message data
     const { messageContent, messageType, conversationTitle, service, metadata } = request;
     const isSelection = metadata?.type === 'selection';
+    const normalizedType = messageType || (isSelection ? 'selection' : 'single');
     
     // Generate filename with timestamp
     const now = new Date();
@@ -177,7 +178,7 @@ async function handleSaveMessage(request, sender, sendResponse) {
       .replace(/[\/\\:*?"<>|]/g, '') // Remove file system unsafe characters only
       .replace(/\s+/g, '_')
       .trim() || 'untitled';
-    const typePrefix = isSelection ? 'selection_' : '';
+    const typePrefix = normalizedType === 'artifact' ? 'artifact_' : (normalizedType === 'selection' ? 'selection_' : '');
     const filename = `${dateStr}_${timeStr}_${typePrefix}${service}_${sanitizedTitle}.md`;
     
     // Create full folder path using ChatVault settings
@@ -185,6 +186,7 @@ async function handleSaveMessage(request, sender, sendResponse) {
       .replace('{service}', service.toUpperCase())
       .replace('{date}', dateStr)
       .replace('{title}', sanitizedTitle)
+      .replace('{type}', normalizedType)
       .replace(/\/+/g, '/') // Remove duplicate slashes
       .replace(/\/$/, ''); // Remove trailing slash
     
@@ -193,18 +195,26 @@ async function handleSaveMessage(request, sender, sendResponse) {
 title: ${conversationTitle || 'Untitled Conversation'}
 service: ${service}
 date: ${now.toISOString()}
-type: ${messageType || (isSelection ? 'selection' : 'single')}
+type: ${normalizedType}
 `;
-    
-    if (isSelection && metadata) {
-      frontmatter += `url: ${metadata.url}
-source: text selection
-`;
-    }
-    
-    frontmatter += `---
 
-`;
+    // Additional metadata for specific types
+    if (metadata) {
+      if (normalizedType === 'artifact') {
+        if (metadata.artifactTitle) frontmatter += `artifact_title: ${metadata.artifactTitle}\n`;
+        if (metadata.artifactLanguage) frontmatter += `artifact_language: ${metadata.artifactLanguage}\n`;
+        if (metadata.artifactFilename) frontmatter += `artifact_filename: ${metadata.artifactFilename}\n`;
+        if (Number.isInteger(metadata.part) && Number.isInteger(metadata.totalParts)) {
+          frontmatter += `part: ${metadata.part}\n`;
+          frontmatter += `totalParts: ${metadata.totalParts}\n`;
+        }
+      } else if (isSelection) {
+        if (metadata.url) frontmatter += `url: ${metadata.url}\n`;
+        frontmatter += `source: text selection\n`;
+      }
+    }
+
+    frontmatter += `---\n\n`;
     
     const fullContent = frontmatter + messageContent;
     
@@ -804,13 +814,15 @@ async function handleSaveMultipleMessages(request, sender, sendResponse) {
       .replace('{date}', dateStr)
       .replace('{service}', service)
       .replace('{url}', sender.tab?.url || '')
+      .replace('{type}', messageType || 'single')
       .replace('{content}', content);
     
     // Generate folder path and filename
     const folderPath = folderTemplate
       .replace('{service}', service.toUpperCase())
       .replace('{date}', dateStr)
-      .replace('{title}', title);
+      .replace('{title}', title)
+      .replace('{type}', messageType || 'single');
     
     // Sanitize title for filename
     const sanitizedTitle = title

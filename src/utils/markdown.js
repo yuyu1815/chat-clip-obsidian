@@ -24,16 +24,49 @@ class MarkdownConverter {
   }
 
   addCustomRules() {
-    // Preserve code blocks with language
+    // Remove non-content UI elements (toolbars, copy buttons, in-artifact controls)
+    // Keep selectors narrowly focused to avoid removing meaningful content
+    if (typeof this.turndownService.remove === 'function') {
+      this.turndownService.remove([
+        '.chatvault-save-btn',
+        '[data-testid*="toolbar" i]','[data-qa*="toolbar" i]',
+        '[data-testid*="copy" i]','[data-qa*="copy" i]',
+        '[data-testid*="download" i]','[data-qa*="download" i]',
+        'button[aria-label*="copy" i]','[role="button"][aria-label*="copy" i]',
+        'button[aria-label*="コピー" i]','[role="button"][aria-label*="コピー" i]',
+        'button[aria-label*="download" i]','[role="button"][aria-label*="download" i]',
+        'button[aria-label*="ダウンロード" i]','[role="button"][aria-label*="ダウンロード" i]'
+      ].join(', '));
+    } else {
+      // Fallback for environments without remove(): explicit rule to drop nodes
+      this.turndownService.addRule('removeArtifactUI', {
+        filter: function (node) {
+          if (!node || node.nodeType !== 1) return false;
+          const el = node;
+          const className = (el.className || '').toString();
+          const testId = (el.getAttribute && (el.getAttribute('data-testid') || el.getAttribute('data-qa'))) || '';
+          const aria = (el.getAttribute && el.getAttribute('aria-label')) || '';
+          const isCopyLike = /copy|コピー|download|ダウンロード|toolbar/i.test(className + ' ' + testId + ' ' + aria);
+          const isCopyButton = ((el.tagName === 'BUTTON' || (el.getAttribute && el.getAttribute('role') === 'button')) && /copy|コピー|download|ダウンロード/i.test(aria));
+          const isSaveBtn = className.includes('chatvault-save-btn');
+          return Boolean(isCopyLike || isCopyButton || isSaveBtn);
+        },
+        replacement: function () { return ''; }
+      });
+    }
+    // Preserve code blocks with language (supports data-language and class="language-xxx")
     this.turndownService.addRule('codeBlock', {
       filter: function (node) {
-        return node.nodeName === 'PRE' && node.querySelector('code');
+        return node.nodeName === 'PRE';
       },
       replacement: function (content, node) {
-        const codeElement = node.querySelector('code');
-        const language = node.getAttribute('data-language') || 
-                        codeElement.getAttribute('class')?.match(/language-(\w+)/)?.[1] || '';
-        const code = codeElement.textContent;
+        const pre = node;
+        const codeElement = pre.querySelector('code') || pre;
+        const fromDataAttr = pre.getAttribute('data-language') || codeElement.getAttribute('data-language') || '';
+        const classNames = (codeElement.getAttribute('class') || '') + ' ' + (pre.getAttribute('class') || '');
+        const classMatch = classNames.match(/language-([\w#+-]+)/i);
+        const language = (fromDataAttr || (classMatch && classMatch[1]) || '').toString();
+        const code = (codeElement.textContent || '').toString();
         return '\n```' + language + '\n' + code + '\n```\n';
       }
     });

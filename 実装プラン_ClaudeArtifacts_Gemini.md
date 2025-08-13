@@ -26,63 +26,63 @@
 ### タスク一覧（チェックリスト）
 
 #### フェーズ1: Claude Artifacts 対応
-- [ ] `src/services/claude.js` に Artifacts 抽出のためのセレクタ定義を追加
-  - [ ] `selectors.artifactContainer`
-  - [ ] `selectors.artifactTitle`
-  - [ ] `selectors.artifactContent`（コード/HTML/テキストを包括）
-  - [ ] `selectors.artifactCodeBlock`（コードブロック抽出）
-- [ ] `ClaudeService` に抽出メソッドを追加
-  - [ ] `extractArtifact(element)`：単一 Artifact を `{ type, title, content, language?, filename? }` で返却
-  - [ ] `extractArtifactsInMessage(messageElement)`：メッセージ内の複数 Artifact を配列で返却
-  - [ ] 10,000 文字超の content は `TextSplitter` で分割（part/totalParts 付与）
-- [ ] `src/contentScripts/inject.js` のボタン注入を拡張
-  - [ ] `addSaveButton()` で Artifact コンテナにも Save ボタンを注入（重複防止）
-  - [ ] クリックハンドラで、クリック元が Artifact 内なら `ClaudeService.extractArtifact` を使い `messageType: 'artifact'`
-- [ ] Markdown 整形
-  - [ ] `src/utils/markdown.js` に Artifact 用の Turndown ルール追補
-    - [ ] ツールバー/コピーアイコン等の除去（remove）
-    - [ ] コードブロック言語保持（`data-language` または `class=language-xxx`）
-- [ ] 保存パイプライン拡張
-  - [ ] `chromium/background.js` のフォルダテンプレ置換に `{type}` 追加
-  - [ ] frontmatter `type: artifact` を保持し、ファイル名にも `artifact_` プレフィックスを付与（選択保存と同等の方式）
-- [ ] 受け入れテスト（手動）
-  - [ ] Claude の Artifact を単一保存し、Obsidian へ Markdown が生成される
-  - [ ] コードブロック/見出し/本文が崩れない（Turndown ルールが期待通り）
-  - [ ] 文字数上限超の Artifact で分割保存が行われ、`part/totalParts` が frontmatter または本文に反映
+1.1 [x] `src/services/claude.js` に Artifacts 抽出のためのセレクタ定義を追加
+  - [x] `selectors.artifactContainer`
+  - [x] `selectors.artifactTitle`
+  - [x] `selectors.artifactContent`（コード/HTML/テキストを包括）
+  - [x] `selectors.artifactCodeBlock`（コードブロック抽出）
+1.2 [x] `ClaudeService` に抽出メソッドを追加
+  - [x] `extractArtifact(element)`：単一 Artifact を `{ type, title, content, language?, filename? }` で返却
+  - [x] `extractArtifactsInMessage(messageElement)`：メッセージ内の複数 Artifact を配列で返却
+  - [x] 10,000 文字超の content は `TextSplitter` で分割（part/totalParts 付与）
+1.3 [x] `src/contentScripts/inject.js` のボタン注入を拡張
+  - [x] `addSaveButton()` で Artifact コンテナにも Save ボタンを注入（重複防止）
+  - [x] クリックハンドラで、クリック元が Artifact 内なら `ClaudeService.extractArtifact` を使い `messageType: 'artifact'`
+1.4 [x] Markdown 整形
+  - [x] `src/utils/markdown.js` に Artifact 用の Turndown ルール追補
+  - [x] ツールバー/コピーアイコン等の除去（remove）
+  - [x] コードブロック言語保持（`data-language` または `class=language-xxx`）
+1.5 [x] 保存パイプライン拡張
+  - [x] `chromium/background.js` のフォルダテンプレ置換に `{type}` 追加
+  - [x] frontmatter `type: artifact` を保持し、ファイル名にも `artifact_` プレフィックスを付与（選択保存と同等の方式）
+1.6 [x] 受け入れテスト（手動）
+  - [x] Claude の Artifact を単一保存し、Obsidian へ Markdown が生成される
+  - [x] コードブロック/見出し/本文が崩れない（Turndown ルールが期待通り）
+  - [x] 文字数上限超の Artifact で分割保存が行われ、`part/totalParts` が frontmatter または本文に反映
 
 #### フェーズ2: Gemini 対応
-- [ ] manifest 登録
+2.1 [ ] manifest 登録
   - [ ] `manifests/manifest_chromium.json` の `host_permissions` と `content_scripts.matches` に `https://gemini.google.com/*` を追加
   - [ ] 可能なら `https://aistudio.google.com/*` も追加（将来の互換）
   - [ ] `manifests/manifest_firefox.json` の `permissions` と `content_scripts.matches` に同様の URL を追加
-- [ ] サービス検出
+2.2 [ ] サービス検出
   - [ ] `src/contentScripts/inject.js` と `inject-safe.js` の `detectService()` に `gemini` を追加（`hostname.includes('gemini.google.com') || hostname.includes('aistudio.google.com')`）
-- [ ] `src/services/gemini.js` を新規追加
+2.3 [ ] `src/services/gemini.js` を新規追加
   - [ ] 最新 UI の DOM を確認し、セレクタ定義（`userMessage`, `assistantMessage`, `messageContent`, `codeBlock`, `mathInline`, `mathBlock`, `conversationTitle`）
   - [ ] `extractSingleMessage(messageElement)` 実装（ChatGPT/Claude 実装に準拠、DOM クローンで改変回避）
   - [ ] `extractAllMessages()` or `extractRecentMessages(n)` 実装
   - [ ] 長文分割の適用（TextSplitter）
-- [ ] コンテントスクリプト統合
+2.4 [ ] コンテントスクリプト統合
   - [ ] `inject.js` で `service === 'gemini'` のとき `new GeminiService()` を初期化
   - [ ] 単一/選択/最新N件/全会話 の保存トリガで `GeminiService` を使用
-- [ ] Markdown 調整
+2.5 [ ] Markdown 調整
   - [ ] `markdown.js` に Gemini 固有要素（装飾/余計なUI）を remove するルールを追加
-- [ ] 受け入れテスト（手動）
+2.6 [ ] 受け入れテスト（手動）
   - [ ] 単一/選択/最新N件/全会話 の全モードで Obsidian に Markdown 保存できる
   - [ ] コードブロック言語・数式の保持
 
 #### フェーズ3: テスト/品質保証（自動/半自動）
-- [ ] ユニットテスト
+3.1 [ ] ユニットテスト
   - [ ] `src/services/__tests__/claude.artifacts.test.js`：疑似 DOM（JSDOM）で Artifact 抽出の正常系/異常系
   - [ ] `src/services/__tests__/gemini.test.js`：疑似 DOM で単一/複数抽出
   - [ ] `src/utils/__tests__/markdown.test.js`：Artifact/Gemini の追加ルールの回帰
-- [ ] E2E（Playwright）
+3.2 [ ] E2E（Playwright）
   - [ ] `tests/e2e/claude-artifacts.spec.js`：ボタン注入・クリックで `chrome.runtime.sendMessage` が所定 payload を送るかをモック検証
   - [ ] `tests/e2e/gemini.spec.js`：同上（ログイン壁により実ページ操作はスキップ/モック）
   - [ ] ロケータはアクセシビリティ優先（例: `getByRole('button', { name: /save/i })`）
 
 #### フェーズ4: ドキュメント/リリース
-- [ ] `README.md` に Gemini 対応/Artifacts 保存のサポート状況を更新
+4.1 [ ] `README.md` に Gemini 対応/Artifacts 保存のサポート状況を更新
 - [ ] `CHANGELOG` エントリ追加（なければ新規）
 - [ ] バージョンバンプ（`package.json`）
 - [ ] ビルド/手動動作確認/配布手順確認

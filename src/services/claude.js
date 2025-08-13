@@ -3,6 +3,8 @@
  * Claude.aiのチャット画面から会話データを抽出する
  */
 
+import { TextSplitter } from '../utils/workerManager.js';
+
 class ClaudeService {
   constructor() {
     this.service = 'Claude';
@@ -17,8 +19,287 @@ class ClaudeService {
       mathInline: '.katex:not(.katex-display)',
       mathBlock: '.katex-display',
       // 会話タイトル
-      conversationTitle: 'h1, h2, [class*="title"]'
+      conversationTitle: 'h1, h2, [class*="title"]',
+      // Artifacts 用セレクタ（複数パターンにフォールバック）
+      // コンテナ: もっとも広い Artifact 包含要素
+      artifactContainer: [
+        '[data-testid="artifact"]',
+        '[data-testid="artifact-container"]',
+        '[data-qa="artifact-container"]',
+        'section:has([data-testid="artifact-title"])',
+        'div:has(> [data-testid="artifact-title"])',
+        '[class*="artifact-container"]',
+        '[class*="ArtifactContainer"]',
+        '[class*="artifact"]:has(pre), [class*="Artifact"]:has(pre)'
+      ].join(', '),
+      // タイトル: Artifact 内の見出し
+      artifactTitle: [
+        '[data-testid="artifact-title"]',
+        '[data-qa="artifact-title"]',
+        '[role="heading"][aria-level="1"]',
+        '[role="heading"][aria-level="2"]',
+        'header h1, header h2',
+        'h1, h2'
+      ].join(', '),
+      // 本文/内容: コード/HTML/テキストを包括
+      artifactContent: [
+        '[data-testid="artifact-content"]',
+        '[data-qa="artifact-content"]',
+        'div[role="document"]',
+        'div.prose',
+        'article',
+        'div[class*="whitespace-pre"]',
+        'div[class*="cm-content"]',
+        'pre, code'
+      ].join(', '),
+      // コードブロック（言語推定用）
+      artifactCodeBlock: [
+        '[data-testid="code-block"] pre',
+        'pre code',
+        'pre'
+      ].join(', ')
     };
+  }
+
+  /**
+   * 単一の Artifact を抽出
+   * @param {Element} element - Artifact を含む/指す要素
+   * @returns {Promise<Object|null>} `{ type, title, content, language?, filename? }`
+   */
+  async extractArtifact(element) {
+    try {
+      if (!element || !(element instanceof Element)) return null;
+
+      // Artifact コンテナを解決
+      let artifactContainer = null;
+      if (element.matches && element.matches(this.selectors.artifactContainer)) {
+        artifactContainer = element;
+      } else if (element.closest) {
+        artifactContainer = element.closest(this.selectors.artifactContainer);
+      }
+      if (!artifactContainer && element.querySelector) {
+        artifactContainer = element.querySelector(this.selectors.artifactContainer);
+      }
+      if (!artifactContainer) return null;
+
+      // タイトル抽出
+      const titleElement = artifactContainer.querySelector(this.selectors.artifactTitle);
+      const rawTitle = titleElement?.textContent?.trim() || 'Artifact';
+
+      // 内容抽出（クローンして無関係UIを除去）
+      const contentRoot = artifactContainer.querySelector(this.selectors.artifactContent) || artifactContainer;
+      const cloned = contentRoot.cloneNode(true);
+
+      // 余計なUIを削除
+      cloned.querySelectorAll('.chatvault-save-btn, [role="button"], button, [data-testid*="toolbar"], [class*="toolbar"], [data-testid*="copy"], [data-qa*="copy"]').forEach(el => el.remove());
+
+      // コードブロックを検出
+      const codeBlocks = cloned.querySelectorAll(this.selectors.artifactCodeBlock);
+      let language = '';
+      let content = '';
+
+      if (codeBlocks.length > 0) {
+        // 代表ブロックから言語を推定
+        const primaryBlock = codeBlocks[0].closest('pre') || codeBlocks[0];
+        const primaryCode = primaryBlock.querySelector('code') || primaryBlock;
+        language = this.detectLanguage(primaryCode, artifactContainer) || '';
+
+        // すべてのブロックを Markdown フェンスに変換して連結
+        const fenced = Array.from(codeBlocks).map(block => {
+          const pre = block.closest('pre') || block;
+          const codeEl = pre.querySelector('code') || pre;
+          const lang = this.detectLanguage(codeEl, artifactContainer) || language || '';
+          const codeText = codeEl.textContent || '';
+          return this.buildCodeFence(codeText, lang);
+        });
+        content = fenced.join('\n\n');
+      } else {
+        // テキスト/HTML ベースの場合は一部整形
+        // pre 要素はコードフェンスに変換
+        const preBlocks = cloned.querySelectorAll('pre');
+        preBlocks.forEach(pre => {
+          const codeEl = pre.querySelector('code') || pre;
+          const lang = this.detectLanguage(codeEl, artifactContainer) || '';
+          const codeText = codeEl.textContent || '';
+          const placeholder = document.createElement('div');
+          placeholder.textContent = this.buildCodeFence(codeText, lang);
+          pre.replaceWith(placeholder);
+        });
+
+        content = this.extractTextContent(cloned).trim();
+      }
+
+      const filename = this.deriveFilename(rawTitle, language);
+
+      return {
+        type: 'artifact',
+        title: rawTitle,
+        content,
+        ...(language ? { language } : {}),
+        ...(filename ? { filename } : {})
+      };
+    } catch (error) {
+      console.error('[Claude Service] Error extracting artifact:', error);
+      return null;
+    }
+  }
+
+  /**
+   * メッセージ要素内の Artifact をすべて抽出
+   * 長文は TextSplitter で分割し、`part/totalParts` を付与
+   * @param {Element} messageElement - メッセージDOM要素
+   * @returns {Promise<Array<Object>>} 抽出された Artifact オブジェクト配列
+   */
+  async extractArtifactsInMessage(messageElement) {
+    try {
+      if (!messageElement || !(messageElement instanceof Element)) return [];
+      const containers = messageElement.querySelectorAll(this.selectors.artifactContainer);
+      if (!containers || containers.length === 0) return [];
+
+      const results = [];
+      for (const container of containers) {
+        const artifact = await this.extractArtifact(container);
+        if (!artifact || !artifact.content) continue;
+
+        const artifacts = await this.splitArtifactIfNeeded(artifact);
+        results.push(...artifacts);
+      }
+
+      return results;
+    } catch (error) {
+      console.error('[Claude Service] Error extracting artifacts in message:', error);
+      return [];
+    }
+  }
+
+  /**
+   * アーティファクトの content が長すぎる場合に分割する
+   * @param {Object} artifact - `{ type, title, content, language?, filename? }`
+   * @returns {Promise<Array<Object>>} 分割後の配列（1要素の場合もある）
+   */
+  async splitArtifactIfNeeded(artifact) {
+    const MAX = 10000;
+    const base = {
+      type: 'artifact',
+      title: artifact.title,
+      language: artifact.language,
+      filename: artifact.filename
+    };
+
+    if (!artifact.content || artifact.content.length <= MAX) {
+      return [{ ...base, content: artifact.content }];
+    }
+
+    // Worker ベースの分割を試行し、失敗時は同期フォールバック
+    let chunks = [];
+    try {
+      const splitter = new TextSplitter();
+      // 拡張として、拡張機能のURL解決に対応
+      if (typeof chrome !== 'undefined' && chrome.runtime?.getURL) {
+        splitter.workerPath = chrome.runtime.getURL('workers/textSplitter.js');
+      }
+      chunks = await splitter.splitText(artifact.content, MAX, 500);
+    } catch (e) {
+      // フォールバック: 既存の同期分割
+      chunks = this.splitLongMessage(artifact.content, MAX);
+    }
+
+    if (!Array.isArray(chunks) || chunks.length === 0) {
+      return [{ ...base, content: artifact.content }];
+    }
+
+    return chunks.map((chunk, index) => ({
+      ...base,
+      content: chunk,
+      part: index + 1,
+      totalParts: chunks.length
+    }));
+  }
+
+  /**
+   * コードフェンスを生成
+   * @param {string} codeText
+   * @param {string} language
+   * @returns {string}
+   */
+  buildCodeFence(codeText, language = '') {
+    const lang = (language || '').trim();
+    return `\`\`\`${lang}\n${codeText}\n\`\`\``;
+  }
+
+  /**
+   * 要素やコンテナから言語を推定
+   * @param {Element} codeElement
+   * @param {Element} container
+   * @returns {string}
+   */
+  detectLanguage(codeElement, container) {
+    if (!codeElement) return '';
+    const attrLang = codeElement.getAttribute('data-language') || codeElement.getAttribute('lang');
+    if (attrLang) return attrLang.toLowerCase();
+
+    const className = codeElement.className || '';
+    const preClass = codeElement.closest('pre')?.className || '';
+    const match = (className.match(/language-([\w#+-]+)/i) || preClass.match(/language-([\w#+-]+)/i));
+    if (match && match[1]) return match[1].toLowerCase();
+
+    // コンテナのデータ属性を確認
+    const containerLang = container?.getAttribute?.('data-language');
+    if (containerLang) return containerLang.toLowerCase();
+
+    // タイトルの拡張子から推定
+    const titleEl = container?.querySelector?.(this.selectors.artifactTitle);
+    const title = titleEl?.textContent || '';
+    const ext = (title.split('.').pop() || '').toLowerCase();
+    const map = this.languageByExtension();
+    if (map[ext]) return map[ext];
+
+    return '';
+  }
+
+  /**
+   * タイトルと推定言語からファイル名を導出
+   * @param {string} rawTitle
+   * @param {string} language
+   * @returns {string}
+   */
+  deriveFilename(rawTitle, language = '') {
+    const title = (rawTitle || 'artifact').trim();
+    const sanitizedTitle = title.replace(/[\/*?"<>:|]/g, '').replace(/\s+/g, '_');
+    // 既に拡張子を含む場合はそのまま
+    if (/\.[A-Za-z0-9]+$/.test(sanitizedTitle)) return sanitizedTitle;
+
+    const extMap = this.extensionByLanguage();
+    const ext = extMap[(language || '').toLowerCase()];
+    return ext ? `${sanitizedTitle}.${ext}` : sanitizedTitle;
+  }
+
+  /**
+   * 言語→拡張子の簡易マップ
+   */
+  extensionByLanguage() {
+    return {
+      javascript: 'js', js: 'js', typescript: 'ts', ts: 'ts',
+      python: 'py', py: 'py', java: 'java', c: 'c', cpp: 'cpp', 'c++': 'cpp',
+      csharp: 'cs', 'c#': 'cs', go: 'go', rust: 'rs', ruby: 'rb', php: 'php',
+      swift: 'swift', kotlin: 'kt', scala: 'scala', shell: 'sh', bash: 'sh',
+      powershell: 'ps1', html: 'html', css: 'css', json: 'json', yaml: 'yml', yml: 'yml',
+      markdown: 'md', md: 'md', sql: 'sql', xml: 'xml', tex: 'tex', r: 'r', matlab: 'm',
+      perl: 'pl', lua: 'lua', dart: 'dart', haskell: 'hs'
+    };
+  }
+
+  /**
+   * 拡張子→言語の簡易マップ
+   */
+  languageByExtension() {
+    const map = this.extensionByLanguage();
+    const reverse = {};
+    Object.keys(map).forEach(lang => {
+      const ext = map[lang];
+      if (ext && !reverse[ext]) reverse[ext] = lang;
+    });
+    return reverse;
   }
 
   /**
