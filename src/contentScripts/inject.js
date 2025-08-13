@@ -128,6 +128,14 @@ log.info('Content script loading...', window.location.href);
         assistantMessage: '[data-is-streaming]',
         content: '.font-user-message, .font-claude-message'
       };
+    } else if (service === 'gemini') {
+      const sel = geminiService?.selectors || {};
+      return {
+        container: sel.messageContainer || 'main article, main [role="listitem"], [data-message-id]',
+        userMessage: sel.userMessage || '[data-author="user"]',
+        assistantMessage: sel.assistantMessage || '[data-author="assistant"]',
+        content: sel.messageContent || '[data-message-content], .markdown, .prose'
+      };
     }
     return null;
   }
@@ -237,6 +245,30 @@ log.info('Content script loading...', window.location.href);
           buttonAdded = true;
            log.debug('Button added to assistant message end:', lastElement);
         }
+      }
+    } else if (service === 'gemini') {
+      // Place at end of Gemini message content
+      const sel = getSelectors();
+      const contentSelector = sel?.content || geminiService?.selectors?.messageContent || '[data-message-content]';
+      let contentElement = null;
+      // Support multiple comma-separated selectors
+      const candidates = String(contentSelector).split(',').map(s => s.trim()).filter(Boolean);
+      for (const s of candidates) {
+        contentElement = messageElement.querySelector(s);
+        if (contentElement) break;
+      }
+      if (contentElement) {
+        button.style.display = 'inline-flex';
+        button.style.marginLeft = '8px';
+        button.style.marginTop = '4px';
+        button.style.verticalAlign = 'top';
+        button.style.opacity = '0.7';
+        button.style.transition = 'opacity 0.2s';
+        button.addEventListener('mouseenter', () => button.style.opacity = '1');
+        button.addEventListener('mouseleave', () => button.style.opacity = '0.7');
+        contentElement.appendChild(button);
+        buttonAdded = true;
+        log.debug('Button added to Gemini content end:', contentElement);
       }
     }
 
@@ -472,6 +504,22 @@ log.info('Content script loading...', window.location.href);
         };
         
          log.debug('Message data:', messageData);
+      } else if (service === 'gemini' && geminiService) {
+        // Gemini 用のメッセージ抽出（GeminiServiceを使用）
+        log.debug('Extracting Gemini message using GeminiService');
+        const extracted = geminiService.extractSingleMessage(messageElement);
+        if (!extracted) {
+          throw new Error('Failed to extract message');
+        }
+        const title = geminiService.getConversationTitle();
+        const role = extracted.role === 'user' ? 'User' : 'Assistant';
+        messageData = {
+          messageContent: `### ${role}\n\n${extracted.content}`,
+          messageType: 'single',
+          conversationTitle: title,
+          service: service
+        };
+        log.debug('Gemini message data:', messageData);
       } else {
         // Fallback to basic DOM extraction for other services
         const selectors = getSelectors();

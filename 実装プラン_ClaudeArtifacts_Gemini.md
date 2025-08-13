@@ -72,14 +72,14 @@
   - [x] コードブロック言語・数式の保持
 
 #### フェーズ3: テスト/品質保証（自動/半自動）
-3.1 [ ] ユニットテスト
-  - [ ] `src/services/__tests__/claude.artifacts.test.js`：疑似 DOM（JSDOM）で Artifact 抽出の正常系/異常系
-  - [ ] `src/services/__tests__/gemini.test.js`：疑似 DOM で単一/複数抽出
-  - [ ] `src/utils/__tests__/markdown.test.js`：Artifact/Gemini の追加ルールの回帰
-3.2 [ ] E2E（Playwright）
-  - [ ] `tests/e2e/claude-artifacts.spec.js`：ボタン注入・クリックで `chrome.runtime.sendMessage` が所定 payload を送るかをモック検証
-  - [ ] `tests/e2e/gemini.spec.js`：同上（ログイン壁により実ページ操作はスキップ/モック）
-  - [ ] ロケータはアクセシビリティ優先（例: `getByRole('button', { name: /save/i })`）
+3.1 [x] ユニットテスト
+  - [x] `src/services/__tests__/claude.artifacts.test.js`：疑似 DOM（JSDOM）で Artifact 抽出の正常系/異常系
+  - [x] `src/services/__tests__/gemini.test.js`：疑似 DOM で単一/複数抽出
+  - [x] `src/utils/__tests__/markdown.test.js`：Artifact/Gemini の追加ルールの回帰
+3.2 [x] E2E（Playwright）
+  - [x] `tests/e2e/claude-artifacts.spec.js`：ボタン注入・クリックで `chrome.runtime.sendMessage` が所定 payload を送るかをモック検証
+  - [x] `tests/e2e/gemini.spec.js`：同上（ログイン壁により実ページ操作はスキップ/モック）
+  - [x] ロケータはアクセシビリティ優先（例: `getByRole('button', { name: /save/i })`）
 
 #### フェーズ4: ドキュメント/リリース
 4.1 [ ] `README.md` に Gemini 対応/Artifacts 保存のサポート状況を更新

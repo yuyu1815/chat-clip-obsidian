@@ -58,6 +58,27 @@ describe('MarkdownConverter', () => {
     });
   });
 
+describe('Claude/Gemini 追加ルールの回帰', () => {
+  test('コピー/ツールバー等のUIが取り除かれる', () => {
+    const html = `
+      <div>
+        <button aria-label="copy">copy</button>
+        <div data-testid="artifact-content"><p>本文</p></div>
+      </div>
+    `;
+    const result = converter.convert(html);
+    expect(result).toContain('本文');
+    expect(result).not.toMatch(/copy|コピー|toolbar/i);
+  });
+
+  test('コードブロックの言語が data-language/class から保持される', () => {
+    const html = '<pre class="language-ts"><code>const a: number = 1;</code></pre>';
+    const result = converter.convert(html);
+    expect(result).toContain('```ts');
+    expect(result).toContain('const a: number = 1;');
+  });
+});
+
   describe('数式の変換', () => {
     test('KaTeX数式が保持される', () => {
       const html = '<span class="katex">$x^2 + y^2 = z^2$</span>';

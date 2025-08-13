@@ -70,15 +70,33 @@ class ClaudeService {
     try {
       if (!element || !(element instanceof Element)) return null;
 
-      // Artifact コンテナを解決
+      // Artifact コンテナを解決（:has() 非対応環境ではフォールバック）
       let artifactContainer = null;
-      if (element.matches && element.matches(this.selectors.artifactContainer)) {
-        artifactContainer = element;
-      } else if (element.closest) {
-        artifactContainer = element.closest(this.selectors.artifactContainer);
-      }
-      if (!artifactContainer && element.querySelector) {
-        artifactContainer = element.querySelector(this.selectors.artifactContainer);
+      const safeContainerSelector = [
+        '[data-testid="artifact"]',
+        '[data-testid="artifact-container"]',
+        '[data-qa="artifact-container"]',
+        '[class*="artifact-container"]',
+        '[class*="ArtifactContainer"]'
+      ].join(', ');
+
+      const tryResolve = (selector) => {
+        let found = null;
+        try {
+          if (element.matches?.(selector)) found = element;
+        } catch (_) {}
+        if (!found) {
+          try { found = element.closest?.(selector) || null; } catch (_) {}
+        }
+        if (!found) {
+          try { found = element.querySelector?.(selector) || null; } catch (_) {}
+        }
+        return found;
+      };
+
+      artifactContainer = tryResolve(this.selectors.artifactContainer);
+      if (!artifactContainer) {
+        artifactContainer = tryResolve(safeContainerSelector);
       }
       if (!artifactContainer) return null;
 
@@ -153,7 +171,28 @@ class ClaudeService {
   async extractArtifactsInMessage(messageElement) {
     try {
       if (!messageElement || !(messageElement instanceof Element)) return [];
-      const containers = messageElement.querySelectorAll(this.selectors.artifactContainer);
+      // :has() を含むセレクタは JSDOM で DOMException を投げる可能性があるためフォールバックを用意
+      let containers = [];
+      const tryQueryAll = (selector) => {
+        try {
+          const list = messageElement.querySelectorAll(selector);
+          return Array.from(list);
+        } catch (_) {
+          return [];
+        }
+      };
+      const safeContainerSelector = [
+        '[data-testid="artifact"]',
+        '[data-testid="artifact-container"]',
+        '[data-qa="artifact-container"]',
+        '[class*="artifact-container"]',
+        '[class*="ArtifactContainer"]'
+      ].join(', ');
+
+      containers = tryQueryAll(this.selectors.artifactContainer);
+      if (!containers.length) {
+        containers = tryQueryAll(safeContainerSelector);
+      }
       if (!containers || containers.length === 0) return [];
 
       const results = [];
