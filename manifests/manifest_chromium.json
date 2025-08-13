@@ -15,11 +15,13 @@
   "host_permissions": [
     "https://chat.openai.com/*",
     "https://chatgpt.com/*",
-    "https://claude.ai/*"
+    "https://claude.ai/*",
+    "https://gemini.google.com/*",
+    "https://aistudio.google.com/*"
   ],
   "content_scripts": [
     {
-      "matches": ["https://chat.openai.com/*", "https://chatgpt.com/*", "https://claude.ai/*"],
+      "matches": ["https://chat.openai.com/*", "https://chatgpt.com/*", "https://claude.ai/*", "https://gemini.google.com/*", "https://aistudio.google.com/*"],
       "js": ["contentScript.js"],
       "css": ["contentScript.css"],
       "run_at": "document_idle",

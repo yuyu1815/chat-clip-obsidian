@@ -2,6 +2,7 @@
 // This script is injected into ChatGPT and Claude pages to add save buttons
 
 import ClaudeService from '../services/claude.js';
+import GeminiService from '../services/gemini.js';
 import { toast } from '../utils/toast.js';
 import { logger } from '../utils/logger.js';
 import { ErrorCodes, toUserMessage } from '../utils/errors.js';
@@ -48,9 +49,13 @@ log.info('Content script loading...', window.location.href);
   
   // Initialize Claude service if needed
   let claudeService = null;
+  let geminiService = null;
   if (service === 'claude') {
     claudeService = new ClaudeService();
     log.info('Claude service initialized');
+  } else if (service === 'gemini') {
+    geminiService = new GeminiService();
+    log.info('Gemini service initialized');
   }
   
   // Rate limiting for DOM operations
@@ -84,6 +89,7 @@ log.info('Content script loading...', window.location.href);
     const hostname = window.location.hostname;
     if (hostname.includes('chat.openai.com') || hostname.includes('chatgpt.com')) return 'chatgpt';
     if (hostname.includes('claude.ai')) return 'claude';
+    if (hostname.includes('gemini.google.com') || hostname.includes('aistudio.google.com')) return 'gemini';
     return null;
   }
 
@@ -732,6 +738,37 @@ log.info('Content script loading...', window.location.href);
   // Handle message capture using service-specific extraction
   function handleCaptureMessages(mode, count = null) {
     try {
+      if (service === 'gemini') {
+        // Gemini専用の抽出ロジック
+        if (!geminiService) geminiService = new GeminiService();
+        let messages = [];
+        let title = '';
+        switch (mode) {
+          case 'all':
+            messages = geminiService.extractAllMessages();
+            break;
+          case 'recent':
+            messages = geminiService.extractRecentMessages(count || 30);
+            break;
+          case 'selected':
+            messages = geminiService.extractSelectedMessages();
+            break;
+          default:
+            throw new Error('Invalid capture mode: ' + mode);
+        }
+        title = geminiService.getConversationTitle();
+
+        const formattedMessages = messages.map(msg => ({
+          speaker: msg.role === 'user' ? 'User' : 'Assistant',
+          content: msg.content
+        }));
+
+        return {
+          success: true,
+          messages: formattedMessages,
+          title
+        };
+      }
       if (service === 'claude' && claudeService) {
         // Claude専用の抽出ロジック
         let messages = [];
@@ -996,6 +1033,32 @@ log.info('Content script loading...', window.location.href);
         content: selection
       });
     } else if (request.action === 'saveActive') {
+      if (service === 'gemini') {
+        // Gemini: 最後のメッセージを単一保存
+        try {
+          if (!geminiService) geminiService = new GeminiService();
+          const all = geminiService.extractAllMessages();
+          if (all.length === 0) {
+            sendResponse({ success: false, error: 'No messages found on the page' });
+            return true;
+          }
+          const last = all[all.length - 1];
+          const role = last.role === 'user' ? 'User' : 'Assistant';
+          const title = geminiService.getConversationTitle();
+          chrome.runtime.sendMessage({
+            action: 'saveSingleMessage',
+            service,
+            messageContent: `### ${role}\n\n${last.content}`,
+            messageType: 'single',
+            conversationTitle: title
+          }, (response) => {
+            sendResponse(response);
+          });
+        } catch (e) {
+          sendResponse({ success: false, error: e.message });
+        }
+        return true;
+      }
       // Find the active message (user can hover or click on it)
       const messageElements = document.querySelectorAll(getSelectors().container);
       if (messageElements.length > 0) {
@@ -1053,6 +1116,55 @@ log.info('Content script loading...', window.location.href);
             sendResponse({ success: false, error: 'No text selected. Please select some text first.' });
           }
         }
+      } else if (service === 'gemini') {
+        try {
+          if (!geminiService) geminiService = new GeminiService();
+          const selectedMessages = geminiService.extractSelectedMessages();
+          if (selectedMessages.length > 0) {
+            const title = geminiService.getConversationTitle();
+            chrome.runtime.sendMessage({
+              action: 'saveMultipleMessages',
+              messages: selectedMessages.map(msg => ({
+                speaker: msg.role === 'user' ? 'User' : 'Assistant',
+                content: msg.content
+              })),
+              conversationTitle: title,
+              service,
+              messageType: 'selection'
+            }, (response) => {
+              sendResponse(response);
+            });
+            return true;
+          } else {
+            // テキスト選択にフォールバック
+            const selectedContent = getSelectedContent();
+            if (selectedContent && selectedContent.text) {
+              chrome.runtime.sendMessage({
+                action: 'saveSingleMessage',
+                service,
+                messageContent: `### Selection\n\n${selectedContent.text}`,
+                messageType: 'selection',
+                conversationTitle: document.title.replace(' | Gemini', '').replace(' - Gemini', ''),
+                metadata: {
+                  type: 'selection',
+                  url: window.location.href,
+                  title: document.title,
+                  timestamp: new Date().toISOString(),
+                  selectionInfo: selectedContent.range
+                }
+              }, (response) => {
+                sendResponse(response);
+              });
+              return true;
+            } else {
+              enableSelectionMode();
+              sendResponse({ success: false, error: 'No text selected. Please select some text first.' });
+            }
+          }
+        } catch (e) {
+          sendResponse({ success: false, error: e.message });
+        }
+        return true;
       } else {
         const selectedContent = getSelectedContent();
         if (selectedContent && selectedContent.text) {
@@ -1079,6 +1191,29 @@ log.info('Content script loading...', window.location.href);
         }
       }
     } else if (request.action === 'saveLastN') {
+      if (service === 'gemini') {
+        try {
+          if (!geminiService) geminiService = new GeminiService();
+          const messages = geminiService.extractRecentMessages(request.count || 30).map(msg => ({
+            speaker: msg.role === 'user' ? 'User' : 'Assistant',
+            content: msg.content
+          }));
+          const title = geminiService.getConversationTitle();
+          chrome.runtime.sendMessage({
+            action: 'saveMultipleMessages',
+            messages,
+            conversationTitle: title,
+            service,
+            messageType: 'recent',
+            count: request.count
+          }, (response) => {
+            sendResponse(response);
+          });
+        } catch (e) {
+          sendResponse({ success: false, error: e.message });
+        }
+        return true;
+      }
       const result = handleCaptureMessages('recent', request.count);
       if (result.success) {
         // Send to background script for saving
@@ -1097,6 +1232,52 @@ log.info('Content script loading...', window.location.href);
       }
       return true; // Keep channel open for async response
     } else if (request.action === 'saveAll') {
+      if (service === 'gemini') {
+        (async () => {
+          try {
+            if (!geminiService) geminiService = new GeminiService();
+            const result = handleCaptureMessages('all');
+            if (result.success) {
+              // 長文分割（GeminiServiceの分割ロジックを利用）
+              const processed = [];
+              for (const msg of result.messages) {
+                let chunks = [msg.content];
+                if (geminiService.splitLongMessage) {
+                  try {
+                    chunks = await geminiService.splitLongMessage(msg.content);
+                  } catch (_) {
+                    chunks = [msg.content];
+                  }
+                }
+                if (chunks.length > 1) {
+                  chunks.forEach((content, index) => {
+                    processed.push({
+                      speaker: `${msg.speaker} (Part ${index + 1}/${chunks.length})`,
+                      content
+                    });
+                  });
+                } else {
+                  processed.push(msg);
+                }
+              }
+              chrome.runtime.sendMessage({
+                action: 'saveMultipleMessages',
+                messages: processed,
+                conversationTitle: result.title,
+                service,
+                messageType: 'all'
+              }, (response) => {
+                sendResponse(response);
+              });
+            } else {
+              sendResponse(result);
+            }
+          } catch (e) {
+            sendResponse({ success: false, error: e.message });
+          }
+        })();
+        return true;
+      }
       const result = handleCaptureMessages('all');
       if (result.success) {
         // メッセージが長すぎる場合の処理

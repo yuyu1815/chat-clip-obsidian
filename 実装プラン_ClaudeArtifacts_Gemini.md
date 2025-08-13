@@ -51,25 +51,25 @@
   - [x] 文字数上限超の Artifact で分割保存が行われ、`part/totalParts` が frontmatter または本文に反映
 
 #### フェーズ2: Gemini 対応
-2.1 [ ] manifest 登録
-  - [ ] `manifests/manifest_chromium.json` の `host_permissions` と `content_scripts.matches` に `https://gemini.google.com/*` を追加
-  - [ ] 可能なら `https://aistudio.google.com/*` も追加（将来の互換）
-  - [ ] `manifests/manifest_firefox.json` の `permissions` と `content_scripts.matches` に同様の URL を追加
-2.2 [ ] サービス検出
-  - [ ] `src/contentScripts/inject.js` と `inject-safe.js` の `detectService()` に `gemini` を追加（`hostname.includes('gemini.google.com') || hostname.includes('aistudio.google.com')`）
-2.3 [ ] `src/services/gemini.js` を新規追加
-  - [ ] 最新 UI の DOM を確認し、セレクタ定義（`userMessage`, `assistantMessage`, `messageContent`, `codeBlock`, `mathInline`, `mathBlock`, `conversationTitle`）
-  - [ ] `extractSingleMessage(messageElement)` 実装（ChatGPT/Claude 実装に準拠、DOM クローンで改変回避）
-  - [ ] `extractAllMessages()` or `extractRecentMessages(n)` 実装
-  - [ ] 長文分割の適用（TextSplitter）
-2.4 [ ] コンテントスクリプト統合
-  - [ ] `inject.js` で `service === 'gemini'` のとき `new GeminiService()` を初期化
-  - [ ] 単一/選択/最新N件/全会話 の保存トリガで `GeminiService` を使用
-2.5 [ ] Markdown 調整
-  - [ ] `markdown.js` に Gemini 固有要素（装飾/余計なUI）を remove するルールを追加
-2.6 [ ] 受け入れテスト（手動）
-  - [ ] 単一/選択/最新N件/全会話 の全モードで Obsidian に Markdown 保存できる
-  - [ ] コードブロック言語・数式の保持
+2.1 [x] manifest 登録
+  - [x] `manifests/manifest_chromium.json` の `host_permissions` と `content_scripts.matches` に `https://gemini.google.com/*` を追加
+  - [x] 可能なら `https://aistudio.google.com/*` も追加（将来の互換）
+  - [x] `manifests/manifest_firefox.json` の `permissions` と `content_scripts.matches` に同様の URL を追加
+2.2 [x] サービス検出
+  - [x] `src/contentScripts/inject.js` と `inject-safe.js` の `detectService()` に `gemini` を追加（`hostname.includes('gemini.google.com') || hostname.includes('aistudio.google.com')`）
+2.3 [x] `src/services/gemini.js` を新規追加
+  - [x] 最新 UI の DOM を確認し、セレクタ定義（`userMessage`, `assistantMessage`, `messageContent`, `codeBlock`, `mathInline`, `mathBlock`, `conversationTitle`）
+  - [x] `extractSingleMessage(messageElement)` 実装（ChatGPT/Claude 実装に準拠、DOM クローンで改変回避）
+  - [x] `extractAllMessages()` or `extractRecentMessages(n)` 実装
+  - [x] 長文分割の適用（TextSplitter）
+2.4 [x] コンテントスクリプト統合
+  - [x] `inject.js` で `service === 'gemini'` のとき `new GeminiService()` を初期化
+  - [x] 単一/選択/最新N件/全会話 の保存トリガで `GeminiService` を使用
+2.5 [x] Markdown 調整
+  - [x] `markdown.js` に Gemini 固有要素（装飾/余計なUI）を remove するルールを追加
+2.6 [x] 受け入れテスト（手動）
+  - [x] 単一/選択/最新N件/全会話 の全モードで Obsidian に Markdown 保存できる
+  - [x] コードブロック言語・数式の保持
 
 #### フェーズ3: テスト/品質保証（自動/半自動）
 3.1 [ ] ユニットテスト

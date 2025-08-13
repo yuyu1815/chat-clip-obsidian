@@ -40,6 +40,7 @@ console.log('[ChatVault] Content script loading...', window.location.href);
       const hostname = window.location.hostname;
       if (hostname.includes('chat.openai.com') || hostname.includes('chatgpt.com')) return 'chatgpt';
       if (hostname.includes('claude.ai')) return 'claude';
+      if (hostname.includes('gemini.google.com') || hostname.includes('aistudio.google.com')) return 'gemini';
       return null;
     } catch (error) {
       console.error('[ChatVault] Error detecting service:', error);

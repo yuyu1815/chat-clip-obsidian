@@ -28,6 +28,7 @@ class MarkdownConverter {
     // Keep selectors narrowly focused to avoid removing meaningful content
     if (typeof this.turndownService.remove === 'function') {
       this.turndownService.remove([
+        // 共通（ChatGPT/Claude/Gemini）
         '.chatvault-save-btn',
         '[data-testid*="toolbar" i]','[data-qa*="toolbar" i]',
         '[data-testid*="copy" i]','[data-qa*="copy" i]',
@@ -35,7 +36,18 @@ class MarkdownConverter {
         'button[aria-label*="copy" i]','[role="button"][aria-label*="copy" i]',
         'button[aria-label*="コピー" i]','[role="button"][aria-label*="コピー" i]',
         'button[aria-label*="download" i]','[role="button"][aria-label*="download" i]',
-        'button[aria-label*="ダウンロード" i]','[role="button"][aria-label*="ダウンロード" i]'
+        'button[aria-label*="ダウンロード" i]','[role="button"][aria-label*="ダウンロード" i]',
+        // Gemini で見られるUI（評価/共有/フィードバック系）
+        'button[aria-label*="thumb" i]','[role="button"][aria-label*="thumb" i]',
+        'button[aria-label*="評価" i]','[role="button"][aria-label*="評価" i]',
+        'button[aria-label*="フィードバック" i]','[role="button"][aria-label*="フィードバック" i]',
+        'button[aria-label*="feedback" i]','[role="button"][aria-label*="feedback" i]',
+        'button[aria-label*="share" i]','[role="button"][aria-label*="share" i]',
+        'button[aria-label*="共有" i]','[role="button"][aria-label*="共有" i]',
+        'button[aria-label*="insert" i]','[role="button"][aria-label*="insert" i]',
+        'button[aria-label*="挿入" i]','[role="button"][aria-label*="挿入" i]',
+        '[data-tooltip*="copy" i]','[data-tooltip*="share" i]','[data-tooltip*="feedback" i]',
+        '[data-mdc-tooltip]','[data-tooltip]'
       ].join(', '));
     } else {
       // Fallback for environments without remove(): explicit rule to drop nodes
@@ -46,8 +58,8 @@ class MarkdownConverter {
           const className = (el.className || '').toString();
           const testId = (el.getAttribute && (el.getAttribute('data-testid') || el.getAttribute('data-qa'))) || '';
           const aria = (el.getAttribute && el.getAttribute('aria-label')) || '';
-          const isCopyLike = /copy|コピー|download|ダウンロード|toolbar/i.test(className + ' ' + testId + ' ' + aria);
-          const isCopyButton = ((el.tagName === 'BUTTON' || (el.getAttribute && el.getAttribute('role') === 'button')) && /copy|コピー|download|ダウンロード/i.test(aria));
+          const isCopyLike = /copy|コピー|download|ダウンロード|toolbar|thumb|評価|フィードバック|feedback|share|共有|insert|挿入/i.test(className + ' ' + testId + ' ' + aria);
+          const isCopyButton = ((el.tagName === 'BUTTON' || (el.getAttribute && el.getAttribute('role') === 'button')) && /copy|コピー|download|ダウンロード|thumb|評価|フィードバック|feedback|share|共有|insert|挿入/i.test(aria));
           const isSaveBtn = className.includes('chatvault-save-btn');
           return Boolean(isCopyLike || isCopyButton || isSaveBtn);
         },
