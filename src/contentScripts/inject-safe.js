@@ -292,9 +292,22 @@ console.log('[ChatVault] Content script loading...', window.location.href);
         // Temporarily remove button for clean extraction
         const saveButton = contentElement.querySelector('.chatvault-save-btn');
         if (saveButton) saveButton.remove();
-        
-        const messageContent = contentElement.innerHTML;
-        
+
+        // Clone and strip Claude's thinking process UI so it won't be saved
+        const cloned = contentElement.cloneNode(true);
+        try {
+          cloned.querySelectorAll('[class*="font-claude-response"]').forEach(el => el.remove());
+          const thinkingLabels = /(思考プロセス|Chain of Thought|Thinking)/i;
+          Array.from(cloned.querySelectorAll('button')).forEach(btn => {
+            if (thinkingLabels.test(btn.textContent || '')) {
+              const wrapper = btn.closest('div');
+              if (wrapper && cloned.contains(wrapper)) wrapper.remove();
+            }
+          });
+        } catch (_) {}
+
+        const messageContent = cloned.innerHTML;
+
         // Re-add button if it was there
         if (saveButton && contentElement.querySelector('p:last-child')) {
           contentElement.querySelector('p:last-child').appendChild(saveButton);

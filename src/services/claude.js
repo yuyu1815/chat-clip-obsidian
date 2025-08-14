@@ -368,6 +368,22 @@ class ClaudeService {
       const saveButtons = clonedContent.querySelectorAll('.chatvault-save-btn');
       saveButtons.forEach(btn => btn.remove());
       
+      // Claudeの思考プロセスUIを除去（Obsidianには保存しない）
+      try {
+        // 明示的なクラス名に基づく除去（Claudeの思考プロセス表示ブロック）
+        clonedContent.querySelectorAll('[class*="font-claude-response"]').forEach(el => el.remove());
+        
+        // ラベルに基づく除去（ボタンや見出しのテキストに「思考プロセス」等が含まれる場合）
+        const thinkingLabels = /(思考プロセス|Chain of Thought|Thinking)/i;
+        const buttons = Array.from(clonedContent.querySelectorAll('button')).filter(btn => thinkingLabels.test(btn.textContent || ''));
+        buttons.forEach(btn => {
+          const wrapper = btn.closest('div');
+          if (wrapper && clonedContent.contains(wrapper)) {
+            wrapper.remove();
+          }
+        });
+      } catch (_) {}
+      
       // コードブロックを処理
       const codeBlocks = clonedContent.querySelectorAll('pre');
       codeBlocks.forEach(pre => {
