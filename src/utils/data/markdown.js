@@ -19,6 +19,9 @@ class MarkdownConverter {
     // Use GFM plugin for tables, strikethrough, etc.
     this.turndownService.use(gfm);
 
+    // Keep certain HTML elements that should not be converted
+    this.turndownService.keep(['iframe', 'canvas', 'svg']);
+
     // Custom rules for better conversion
     this.addCustomRules();
   }
@@ -76,7 +79,7 @@ class MarkdownConverter {
     this.turndownService.addRule('mathExpression', {
       filter: function (node) {
         return node.classList && (
-          node.classList.contains('math-inline') || 
+          node.classList.contains('math-inline') ||
           node.classList.contains('math-block') ||
           node.classList.contains('katex')
         );
@@ -95,6 +98,107 @@ class MarkdownConverter {
       replacement: function (content) {
         // Preserve whitespace in pre-wrapped content
         return content;
+      }
+    });
+
+    // Handle definition lists
+    this.turndownService.addRule('definitionList', {
+      filter: 'dl',
+      replacement: function (content) {
+        return '\n\n' + content + '\n\n';
+      }
+    });
+
+    this.turndownService.addRule('definitionTerm', {
+      filter: 'dt',
+      replacement: function (content) {
+        return '\n**' + content + '**\n';
+      }
+    });
+
+    this.turndownService.addRule('definitionDescription', {
+      filter: 'dd',
+      replacement: function (content) {
+        return ': ' + content + '\n';
+      }
+    });
+
+    // Preserve HTML comments
+    this.turndownService.addRule('htmlComments', {
+      filter: function (node) {
+        return node.nodeType === 8; // Comment node
+      },
+      replacement: function (content, node) {
+        return '<!-- ' + node.nodeValue + ' -->';
+      }
+    });
+
+    // Enhance image handling with captions
+    this.turndownService.addRule('imageWithCaption', {
+      filter: function (node) {
+        return (
+          node.nodeName === 'FIGURE' &&
+          node.querySelector('img') &&
+          node.querySelector('figcaption')
+        );
+      },
+      replacement: function (content, node) {
+        const img = node.querySelector('img');
+        const caption = node.querySelector('figcaption');
+        const alt = img.getAttribute('alt') || '';
+        const src = img.getAttribute('src') || '';
+        const captionText = caption ? caption.textContent : '';
+
+        return `\n\n![${alt}](${src})\n*${captionText}*\n\n`;
+      }
+    });
+
+    // Improve nested list handling
+    this.turndownService.addRule('nestedList', {
+      filter: ['ul', 'ol'],
+      replacement: function (content, node, options) {
+        const isNested = node.parentNode.nodeName === 'LI';
+        const isOrderedList = node.nodeName === 'OL';
+        const listItems = Array.from(node.children).filter(child => child.nodeName === 'LI');
+
+        // Process each list item with proper indentation for nested lists
+        let output = '';
+
+        if (isNested) {
+          output += '\n';
+        } else {
+          output += '\n\n';
+        }
+
+        listItems.forEach((item, index) => {
+          const prefix = isOrderedList ? `${index + 1}. ` : `${options.bulletListMarker} `;
+          let itemContent = item.innerHTML
+            .replace(/<\/?ul>|<\/?ol>|<\/?li>/g, '')
+            .trim();
+
+          // Process nested lists recursively
+          const nestedLists = Array.from(item.querySelectorAll('ul, ol'));
+          if (nestedLists.length > 0) {
+            nestedLists.forEach(nestedList => {
+              const nestedItems = Array.from(nestedList.children).filter(child => child.nodeName === 'LI');
+              const isNestedOrdered = nestedList.nodeName === 'OL';
+
+              nestedItems.forEach((nestedItem, nestedIndex) => {
+                const nestedPrefix = isNestedOrdered ? `${nestedIndex + 1}. ` : `${options.bulletListMarker} `;
+                const nestedContent = nestedItem.textContent.trim();
+                itemContent += `\n    ${nestedPrefix}${nestedContent}`;
+              });
+            });
+          }
+
+          output += prefix + itemContent + '\n';
+        });
+
+        if (!isNested) {
+          output += '\n';
+        }
+
+        return output;
       }
     });
   }
@@ -126,7 +230,7 @@ class MarkdownConverter {
       const header = `### ${speaker}`;
       const timestamp = includeTimestamp ? `\n*${new Date(message.timestamp).toLocaleString()}*\n` : '';
       const content = this.convert(message.content);
-      
+
       return header + timestamp + '\n\n' + content;
     }).join(separator);
   }
@@ -148,7 +252,7 @@ class MarkdownConverter {
 
     const date = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD format
     const content = this.messagesToMarkdown(messages);
-    
+
     // Build frontmatter if metadata is included
     let frontmatter = '';
     if (includeMetadata) {

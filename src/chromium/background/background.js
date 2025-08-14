@@ -1,13 +1,42 @@
 /* global chrome */
-import { logger } from '../../utils/data/logger.js';
-import { ErrorCodes, toUserMessage } from '../../utils/data/errors.js';
 import { notifyBasic } from '../../utils/ui/notifications.js';
 import { toBase64Utf8 } from '../../utils/data/encoding.js';
 import { buildObsidianNewUri, buildAdvancedUriText, buildAdvancedUriClipboard } from '../../utils/browser/obsidian.js';
 import { sanitizeForFilename } from '../../utils/data/validation.js';
 import { openUrlWithAutoClose, getSync } from '../../utils/browser/chrome.js';
 
-const log = logger.create('Background');
+// Error codes
+const ErrorCodes = {
+  NoServiceDetected: 'NO_SERVICE',
+  MissingVaultHandle: 'MISSING_VAULT_HANDLE',
+  ClipboardFailed: 'CLIPBOARD_FAILED',
+  FilesystemPermission: 'FILESYSTEM_PERMISSION',
+  ObsidianUriTooLong: 'URI_TOO_LONG',
+  BackgroundNoTabId: 'NO_TAB_ID',
+  SaveFailed: 'SAVE_FAILED',
+};
+
+// Convert error code to user-friendly message
+function toUserMessage(code, detail) {
+  switch (code) {
+    case ErrorCodes.NoServiceDetected:
+      return '対応サイトではありません（ChatGPT/Claudeで使用してください）';
+    case ErrorCodes.MissingVaultHandle:
+      return 'Vaultフォルダが未設定です。オプションからVaultを選択してください。';
+    case ErrorCodes.ClipboardFailed:
+      return 'クリップボードへのコピーに失敗しました。再度お試しください。';
+    case ErrorCodes.FilesystemPermission:
+      return 'ファイル保存の権限がありません。Vaultフォルダの権限を再承認してください。';
+    case ErrorCodes.ObsidianUriTooLong:
+      return 'コンテンツが大きすぎてURIに載せられません。クリップボード保存に切り替えます。';
+    case ErrorCodes.BackgroundNoTabId:
+      return '有効なタブが見つかりません。ページをリロードして再試行してください。';
+    case ErrorCodes.SaveFailed:
+      return '保存に失敗しました。コンソールのログを確認してください。';
+    default:
+      return detail || '不明なエラーが発生しました。';
+  }
+}
 
 // Handle extension installation
 chrome.runtime.onInstalled.addListener(function (details) {

@@ -3,9 +3,6 @@ import React, { useState, useEffect } from "react";
 import { toast } from "../../utils/ui/toast.js";
 import { buildObsidianNewUri } from "../../utils/browser/obsidian.js";
 import { getSync } from "../../utils/browser/chrome.js";
-import { logger } from "../../utils/data/logger.js";
-
-const log = logger.create('Options');
 
 const OptionsApp = () => {
 
@@ -35,7 +32,7 @@ const OptionsApp = () => {
   const defaultNoteContentFormat = "{url}\n\n{content}";
 
   useEffect(() => {
-    log.info('Loading settings from storage...');
+    console.info('[ChatVault Options] Loading settings from storage...');
 
     // Load the settings from browser storage
     getSync(
@@ -58,12 +55,12 @@ const OptionsApp = () => {
         "selectedFolderPath"
       ]
     ).then((result) => {
-        log.debug('Loaded settings:', result);
+        console.debug('[ChatVault Options] Loaded settings:', result);
         if (result.obsidianVault) {
-          log.debug('Setting vault:', result.obsidianVault);
+          console.debug('[ChatVault Options] Setting vault:', result.obsidianVault);
           setVault(result.obsidianVault);
         } else {
-          log.warn('No vault found in storage');
+          console.warn('[ChatVault Options] No vault found in storage');
         }
         if (result.folderPath) {
           setFolder(result.folderPath);
@@ -110,7 +107,7 @@ const OptionsApp = () => {
 
   const handleSelectFolder = async () => {
     try {
-      log.info('Opening folder picker...');
+      console.info('[ChatVault Options] Opening folder picker...');
       // Check if File System Access API is available
       if (!('showDirectoryPicker' in window)) {
         alert('File System Access APIはサポートされていません。Chrome 86+またはEdge 86+を使用してください。');
@@ -123,13 +120,13 @@ const OptionsApp = () => {
         startIn: 'documents'
       });
 
-      log.info('Folder selected:', dirHandle.name);
+      console.info('[ChatVault Options] Folder selected:', dirHandle.name);
       setSelectedFolder(dirHandle);
       setFolderPath(dirHandle.name);
 
       // Store folder path in chrome storage
       chrome.storage.sync.set({ selectedFolderPath: dirHandle.name }, () => {
-        log.debug('Folder path saved to storage');
+        console.debug('[ChatVault Options] Folder path saved to storage');
       });
 
       // Store the directory handle in IndexedDB for persistence
@@ -138,9 +135,9 @@ const OptionsApp = () => {
 
     } catch (err) {
       if (err.name === 'AbortError') {
-        log.info('Folder selection cancelled');
+        console.info('[ChatVault Options] Folder selection cancelled');
       } else {
-        log.error('Error selecting folder:', err);
+        console.error('[ChatVault Options] Error selecting folder:', err);
         toast.show('フォルダ選択エラー: ' + err.message, 'error');
       }
     }
@@ -171,8 +168,8 @@ const OptionsApp = () => {
   };
 
   const handleSave = () => {
-    log.info('handleSave called');
-    log.debug('Current state:', {
+    console.info('[ChatVault Options] handleSave called');
+    console.debug('[ChatVault Options] Current state:', {
       vault: vault,
       folder: folder,
       showChatSettings: showChatSettings,
@@ -181,7 +178,7 @@ const OptionsApp = () => {
 
     // Check if the required fields are empty
     if (vault.trim() === "" || folder.trim() === "") {
-      log.warn('Required fields empty');
+      console.warn('[ChatVault Options] Required fields empty');
       toast.show('Obsidian Vault名と基本フォルダ名の両方を入力してください。', 'error');
       return;
     }
@@ -226,7 +223,7 @@ const OptionsApp = () => {
       },
       () => {
         if (chrome.runtime.lastError) {
-          log.error('Error saving settings:', chrome.runtime.lastError);
+          console.error('[ChatVault Options] Error saving settings:', chrome.runtime.lastError);
           toast.show('設定の保存に失敗しました: ' + chrome.runtime.lastError.message, 'error');
         } else {
           toast.show(`設定を保存しました。保存先: "${chatFolderPath}"`, 'success');

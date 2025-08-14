@@ -4,13 +4,10 @@ import React, { useState, useEffect, useRef, Suspense } from "react";
 import { sanitizeTitle } from "../../utils/data/validation.js";
 import { queryActiveTab } from "../../utils/browser/chrome.js";
 import { toast } from "../../utils/ui/toast.js";
-import { logger } from "../../utils/data/logger.js";
 import ChatModeSelector from "./components/ChatModeSelector";
 
 // Lazy load MarkdownPreview to reduce initial bundle size
 const MarkdownPreview = React.lazy(() => import("./components/MarkdownPreview"));
-
-const log = logger.create('Popup');
 
 function App() {
   // Original state
@@ -89,7 +86,7 @@ function App() {
           setMode('single');
         }
       } catch (error) {
-        log.error("Error getting page info: ", error);
+        console.error("[ChatVault Popup] Error getting page info: ", error);
       } finally {
         setLoading(false);
       }
@@ -131,7 +128,7 @@ function App() {
           }
         });
       } catch (error) {
-        log.error("Error loading settings: ", error);
+        console.error("[ChatVault Popup] Error loading settings: ", error);
       } finally {
         setLoading(false);
       }

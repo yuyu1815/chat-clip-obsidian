@@ -4,27 +4,60 @@
 import ClaudeService from '../../services/ai/claude.js';
 import GeminiService from '../../services/ai/gemini.js';
 import { toast } from '../../utils/ui/toast.js';
-import { logger } from '../../utils/data/logger.js';
-import { ErrorCodes, toUserMessage } from '../../utils/data/errors.js';
+import ChatGPTProvider from './providers/chatgpt.js';
+import ClaudeProvider from './providers/claude.js';
+import GeminiProvider from './providers/gemini.js';
 
-const log = logger.create('Content');
-log.info('Content script loading...', window.location.href);
+// Error codes
+const ErrorCodes = {
+  NoServiceDetected: 'NO_SERVICE',
+  MissingVaultHandle: 'MISSING_VAULT_HANDLE',
+  ClipboardFailed: 'CLIPBOARD_FAILED',
+  FilesystemPermission: 'FILESYSTEM_PERMISSION',
+  ObsidianUriTooLong: 'URI_TOO_LONG',
+  BackgroundNoTabId: 'NO_TAB_ID',
+  SaveFailed: 'SAVE_FAILED',
+};
+
+// Convert error code to user-friendly message
+function toUserMessage(code, detail) {
+  switch (code) {
+    case ErrorCodes.NoServiceDetected:
+      return '対応サイトではありません（ChatGPT/Claudeで使用してください）';
+    case ErrorCodes.MissingVaultHandle:
+      return 'Vaultフォルダが未設定です。オプションからVaultを選択してください。';
+    case ErrorCodes.ClipboardFailed:
+      return 'クリップボードへのコピーに失敗しました。再度お試しください。';
+    case ErrorCodes.FilesystemPermission:
+      return 'ファイル保存の権限がありません。Vaultフォルダの権限を再承認してください。';
+    case ErrorCodes.ObsidianUriTooLong:
+      return 'コンテンツが大きすぎてURIに載せられません。クリップボード保存に切り替えます。';
+    case ErrorCodes.BackgroundNoTabId:
+      return '有効なタブが見つかりません。ページをリロードして再試行してください。';
+    case ErrorCodes.SaveFailed:
+      return '保存に失敗しました。コンソールのログを確認してください。';
+    default:
+      return detail || '不明なエラーが発生しました。';
+  }
+}
+
+console.info('[ChatVault Content] コンテンツスクリプトを読み込み中...', window.location.href);
 
 (function() {
   'use strict';
 
-  // Prevent interference with ChatGPT's image loading
+  // ChatGPTの画像読み込みとの干渉を防ぐ
   const originalConsoleError = console.error;
   console.error = function(...args) {
     const errorStr = args.join(' ');
     if (errorStr.includes('imageData') || errorStr.includes('googleusercontent')) {
-      // Suppress ChatGPT image loading errors
+      // ChatGPTの画像読み込みエラーを抑制
       return;
     }
     return originalConsoleError.apply(console, args);
   };
 
-  // Add error event listener to prevent bubbling
+  // エラーイベントリスナーを追加してバブリングを防ぐ
   window.addEventListener('error', function(event) {
     if (event.target && event.target.src && event.target.src.includes('googleusercontent')) {
       event.stopPropagation();
@@ -33,32 +66,41 @@ log.info('Content script loading...', window.location.href);
     }
   }, true);
 
-  log.info('Content script executing...');
+  log.info('コンテンツスクリプトを実行中...');
 
-  // Configuration
+  // 設定
   const BUTTON_SELECTOR = '.chatvault-save-btn';
-  const DEBOUNCE_DELAY = 300; // Increased to reduce conflicts with ChatGPT
+  const DEBOUNCE_DELAY = 300; // ChatGPTとの競合を減らすために増加
 
-  // Service detection
+  // サービス検出
   const service = detectService();
-  log.info('Detected service:', service);
+  log.info('検出されたサービス:', service);
   if (!service) {
-    log.warn('No supported service detected, exiting');
+    log.warn('対応サービスが検出されませんでした、終了します');
     return;
   }
 
-  // Initialize Claude service if needed
+  // 必要に応じてClaudeサービスを初期化
   let claudeService = null;
   let geminiService = null;
   if (service === 'claude') {
     claudeService = new ClaudeService();
-    log.info('Claude service initialized');
+    log.info('Claudeサービスを初期化しました');
   } else if (service === 'gemini') {
     geminiService = new GeminiService();
-    log.info('Gemini service initialized');
+    log.info('Geminiサービスを初期化しました');
   }
 
-  // Rate limiting for DOM operations
+  // Active provider interface
+  const provider = service === 'chatgpt'
+    ? ChatGPTProvider
+    : service === 'claude'
+      ? ClaudeProvider
+      : service === 'gemini'
+        ? GeminiProvider
+        : null;
+
+  // DOM操作のレート制限
   let lastOperationTime = 0;
   let operationQueue = [];
 
@@ -73,7 +115,7 @@ log.info('Content script loading...', window.location.href);
       try {
         fn.apply(this, args);
       } catch (error) {
-        log.error('Throttled operation error:', error);
+        log.error('スロットル操作エラー:', error);
       }
 
       // Process queue
@@ -84,7 +126,7 @@ log.info('Content script loading...', window.location.href);
     };
   }
 
-  // Detect current service (ChatGPT or Claude)
+  // 現在のサービスを検出（ChatGPTまたはClaude）
   function detectService() {
     const hostname = window.location.hostname;
     if (hostname.includes('chat.openai.com') || hostname.includes('chatgpt.com')) return 'chatgpt';
@@ -93,7 +135,7 @@ log.info('Content script loading...', window.location.href);
     return null;
   }
 
-  // Create save button element
+  // 保存ボタン要素を作成
   function createSaveButton() {
     const button = document.createElement('button');
     button.className = 'chatvault-save-btn';
@@ -109,91 +151,25 @@ log.info('Content script loading...', window.location.href);
     return button;
   }
 
-  // Get message selectors based on service
+  // サービスに基づいてメッセージセレクタを取得（プロバイダに委譲）
   function getSelectors() {
-    if (service === 'chatgpt') {
-      return {
-        // More specific selectors for actual conversation messages only
-        container: '[data-message-author-role][data-message-id]',
-        userMessage: '[data-message-author-role="user"][data-message-id]',
-        assistantMessage: '[data-message-author-role="assistant"][data-message-id]',
-        content: '.markdown, [class*="markdown"], .prose, [class*="prose"], .whitespace-pre-wrap'
-      };
-    } else if (service === 'claude') {
-      // Claudeのメッセージ構造: ユーザーとアシスタントメッセージを別々に扱う
-      const sel = claudeService?.selectors || {};
-      return {
-        // より堅牢なセレクタ（ClaudeServiceと揃える）
-        container: sel.messageContainer || '[data-testid="user-message"], [data-is-streaming], .font-claude-message, div.prose, div[class*="whitespace-pre-wrap"]'
-        , userMessage: sel.userMessage || '[data-testid="user-message"]'
-        , assistantMessage: sel.assistantMessage || '[data-is-streaming]'
-        , content: sel.messageContent || '.font-user-message, .font-claude-message, div.prose, div[class*="whitespace-pre-wrap"]'
-      };
-    } else if (service === 'gemini') {
-      const sel = geminiService?.selectors || {};
-      return {
-        container: sel.messageContainer || 'main article, main [role="listitem"], [data-message-id]',
-        userMessage: sel.userMessage || '[data-author="user"]',
-        assistantMessage: sel.assistantMessage || '[data-author="assistant"]',
-        content: sel.messageContent || '[data-message-content], .markdown, .prose'
-      };
-    }
-    return null;
+    if (!provider) return null;
+    const helper = service === 'claude' ? claudeService : (service === 'gemini' ? geminiService : null);
+    return provider.getSelectors(helper);
   }
 
-  // Resolve ideal insertion target for Claude (prefer disclaimer row; fallback to content end)
+  // Claudeの理想的な挿入ターゲットを解決（免責事項行を優先、コンテンツ末尾にフォールバック）
+  // Claude provider helper moved to provider module
   function getClaudeTargetEnd(messageElement) {
-    try {
-      const topContainer = (messageElement.closest && messageElement.closest('div.group.relative')) || messageElement;
-      const disclaimerAnchor = topContainer.querySelector('a[href*="support.anthropic.com"]');
-      if (disclaimerAnchor) {
-        let row = disclaimerAnchor.closest('div') || topContainer;
-        let current = row;
-        while (current && current !== topContainer && current !== document.body) {
-          if (current.classList && current.classList.contains('flex') && current.classList.contains('items-center')) {
-            row = current;
-            break;
-          }
-          current = current.parentElement;
-        }
-        return row;
-      }
-      const content = (messageElement.matches && messageElement.matches('.font-claude-message, div.prose, div[class*="whitespace-pre-wrap"]'))
-        ? messageElement
-        : messageElement.querySelector?.('.font-claude-message, div.prose, div[class*="whitespace-pre-wrap"]');
-      if (content) {
-        const paragraphs = content.querySelectorAll('p, div, pre, code');
-        return paragraphs[paragraphs.length - 1] || content;
-      }
-      return null;
-    } catch (_) {
-      return null;
-    }
+    return ClaudeProvider.getTargetEnd(messageElement);
   }
 
-  // Insert Claude save button at preferred spot (left of copy button if present)
+  // Claude保存ボタンを優先位置に挿入（プロバイダに委譲）
   function insertClaudeButtonAtPreferredSpot(button, messageElement) {
-    try {
-      const topContainer = (messageElement.closest && messageElement.closest('div.group.relative')) || messageElement;
-      const copyBtn = topContainer.querySelector('button[data-testid="action-bar-copy"]');
-      if (copyBtn && copyBtn.parentElement) {
-        // Place to the left of the copy button within the same row
-        copyBtn.parentElement.insertBefore(button, copyBtn);
-        return true;
-      }
-      // Fallback to target end (disclaimer row or content end)
-      const targetEnd = getClaudeTargetEnd(messageElement);
-      if (targetEnd) {
-        targetEnd.appendChild(button);
-        return true;
-      }
-    } catch (_) {
-      // ignore
-    }
-    return false;
+    return ClaudeProvider.insertButtonAtPreferredSpot(button, messageElement);
   }
 
-  // Add save button to a message element
+  // メッセージ要素に保存ボタンを追加
   function addSaveButton(messageElement) {
     // 既存ボタンの扱い（Claudeは末尾へリポジショニング）
     const existingButton = messageElement.querySelector(BUTTON_SELECTOR);
@@ -201,7 +177,7 @@ log.info('Content script loading...', window.location.href);
       if (service === 'claude') {
         const placed = insertClaudeButtonAtPreferredSpot(existingButton, messageElement);
         if (placed) {
-          log.debug('Repositioned Claude save button to preferred spot');
+          log.debug('Claude保存ボタンを優先位置に再配置しました');
         }
       }
       return;
@@ -223,134 +199,49 @@ log.info('Content script loading...', window.location.href);
       const hasClaudeContent = messageElement.matches('.font-claude-message, div.prose, div[class*="whitespace-pre-wrap"]') || !!messageElement.querySelector('.font-claude-message, div.prose, div[class*="whitespace-pre-wrap"]');
       const isMessageLike = hasUserFlag || hasAssistantFlag || hasClaudeContent;
       if (!isMessageLike) {
-        log.debug('Skipping non-message element:', messageElement);
+        log.debug('メッセージ以外の要素をスキップ:', messageElement);
         return;
       }
     }
 
-    log.debug('Adding save button to message element:', messageElement);
+    log.debug('メッセージ要素に保存ボタンを追加:', messageElement);
 
     const button = createSaveButton();
     let buttonAdded = false;
 
-    // Position button at the end of message content
+    // メッセージコンテンツの末尾にボタンを配置
     if (service === 'chatgpt') {
-      // Find the content area in ChatGPT
-      const contentSelectors = [
-        '.markdown',
-        '[class*="markdown"]',
-        '.prose',
-        '[class*="prose"]',
-        '.whitespace-pre-wrap',
-        '[class*="message-content"]'
-      ];
-
-      let contentElement = null;
-      for (const selector of contentSelectors) {
-        contentElement = messageElement.querySelector(selector);
-        if (contentElement) break;
-      }
-
-      if (contentElement) {
-        // Style button for inline placement at end of content
-        button.style.display = 'inline-flex';
-        button.style.marginLeft = '8px';
-        button.style.marginTop = '4px';
-        button.style.verticalAlign = 'top';
-        button.style.opacity = '0.7';
-        button.style.transition = 'opacity 0.2s';
-
-        // Add hover effect
-        button.addEventListener('mouseenter', () => button.style.opacity = '1');
-        button.addEventListener('mouseleave', () => button.style.opacity = '0.7');
-
-        contentElement.appendChild(button);
+      const res = ChatGPTProvider.addSaveButton(messageElement, createSaveButton);
+      if (res.added) {
         buttonAdded = true;
-          log.debug('Button added to ChatGPT content end:', contentElement);
+        log.debug('ChatGPTコンテンツ末尾にボタンを追加:', res.target);
       }
     } else if (service === 'claude') {
-      // Claudeの場合、メッセージ末尾にボタンを配置（常時表示気味）
-      button.style.display = 'inline-flex';
-      button.style.marginLeft = '8px';
-      button.style.marginTop = '4px';
-      button.style.verticalAlign = 'middle';
-      button.style.opacity = '0.7';
-      button.style.visibility = 'visible';
-      button.style.transition = 'opacity 0.2s';
-      button.style.position = 'static';
-
-      // ホバー効果
-      button.addEventListener('mouseenter', () => { button.style.opacity = '1'; });
-      button.addEventListener('mouseleave', () => { button.style.opacity = '0.7'; });
-
-      // まずはアクションバーのコピー左に配置を試行
-      if (!buttonAdded) {
-        const placed = insertClaudeButtonAtPreferredSpot(button, messageElement);
-        if (placed) {
-          buttonAdded = true;
-          log.debug('Button added to Claude preferred spot (before copy)');
-        }
-      }
-
-      // ユーザー/アシスタントの両方に対応（ストリーミング終了後も）
-      const userContainer = messageElement.matches('[data-testid="user-message"]')
-        ? messageElement
-        : messageElement.querySelector?.('[data-testid="user-message"]');
-      const assistantContent = messageElement.matches('.font-claude-message, div.prose, div[class*="whitespace-pre-wrap"]')
-        ? messageElement
-        : messageElement.querySelector?.('.font-claude-message, div.prose, div[class*="whitespace-pre-wrap"]');
-
-      if (userContainer) {
-        const messageContent = userContainer.querySelector('.font-user-message') || userContainer;
-        const lastTextNode = messageContent.querySelector('p:last-child, div:last-child') || messageContent;
-        lastTextNode.appendChild(button);
+      const res = ClaudeProvider.addSaveButton(messageElement, createSaveButton, claudeService);
+      if (res.added) {
         buttonAdded = true;
-        log.debug('Button added to user message end:', lastTextNode);
-      } else if (!buttonAdded) {
-        // アシスタント：サポート告知行があればそこへ、無ければ本文末尾
-        const targetEnd = getClaudeTargetEnd(messageElement) || assistantContent;
-        if (targetEnd) {
-          targetEnd.appendChild(button);
-          buttonAdded = true;
-          log.debug('Button added to Claude target end:', targetEnd);
-        }
+        log.debug('Claudeプロバイダでボタンを追加:', res.target);
       }
     } else if (service === 'gemini') {
-      // Place at end of Gemini message content
-      const sel = getSelectors();
-      const contentSelector = sel?.content || geminiService?.selectors?.messageContent || '[data-message-content]';
-      let contentElement = null;
-      // Support multiple comma-separated selectors
-      const candidates = String(contentSelector).split(',').map(s => s.trim()).filter(Boolean);
-      for (const s of candidates) {
-        contentElement = messageElement.querySelector(s);
-        if (contentElement) break;
-      }
-      if (contentElement) {
-        button.style.display = 'inline-flex';
-        button.style.marginLeft = '8px';
-        button.style.marginTop = '4px';
-        button.style.verticalAlign = 'top';
-        button.style.opacity = '0.7';
-        button.style.transition = 'opacity 0.2s';
-        button.addEventListener('mouseenter', () => button.style.opacity = '1');
-        button.addEventListener('mouseleave', () => button.style.opacity = '0.7');
-        contentElement.appendChild(button);
+      const res = GeminiProvider.addSaveButton(messageElement, createSaveButton, geminiService);
+      if (res.added) {
         buttonAdded = true;
-        log.debug('Button added to Gemini content end:', contentElement);
+        log.debug('Geminiコンテンツ末尾にボタンを追加:', res.target);
       }
     }
 
-    // Fallback配置（Claudeでは思考領域に付かないようスキップ）
+    // フォールバック配置（Claudeでは思考領域に付かないようスキップ）
     if (!buttonAdded) {
-      if (service !== 'claude') {
-        log.warn('Could not find content area, using fallback positioning');
+      const allowFallback = (provider?.absoluteFallbackAllowed !== false);
+      if (allowFallback) {
+        const fbButton = button && button.isConnected ? button : createSaveButton();
+        log.warn('コンテンツエリアが見つかりませんでした、フォールバック配置を使用');
         messageElement.style.position = 'relative';
-        button.style.position = 'absolute';
-        button.style.top = '10px';
-        button.style.right = '10px';
-        button.style.zIndex = '1000';
-        messageElement.appendChild(button);
+        fbButton.style.position = 'absolute';
+        fbButton.style.top = '10px';
+        fbButton.style.right = '10px';
+        fbButton.style.zIndex = '1000';
+        messageElement.appendChild(fbButton);
       } else {
         // Claude: コンテンツ確定後に再試行
         setTimeout(() => {
@@ -361,97 +252,72 @@ log.info('Content script loading...', window.location.href);
       }
     }
 
-    // Add click handler with enhanced debugging
-    button.addEventListener('click', async (e) => {
+    // クリックハンドラーを追加（デバッグ強化）
+    const actualButton = messageElement.querySelector(BUTTON_SELECTOR) || button;
+    if (!actualButton) return;
+    actualButton.addEventListener('click', async (e) => {
       e.preventDefault();
       e.stopPropagation();
-      log.info('SAVE BUTTON CLICKED!', messageElement);
-      log.debug('Service:', service);
-      log.debug('Current URL:', window.location.href);
+      log.info('保存ボタンがクリックされました！', messageElement);
+      log.debug('サービス:', service);
+      log.debug('現在のURL:', window.location.href);
 
-      // Add visual feedback using CSS classes
-      button.classList.add('chatvault-saving');
-      button.disabled = true;
+      // CSSクラスを使用してビジュアルフィードバックを追加
+      actualButton.classList.add('chatvault-saving');
+      actualButton.disabled = true;
 
       try {
-        // Ensure directory handle up-front if File System method is preferred
+        // File System方式が優先される場合は事前にディレクトリハンドルを確保
         await ensureDirectoryHandleIfNeeded();
         await handleSaveClick(messageElement);
       } catch (error) {
         log.error('Error in handleSaveClick:', error);
         toast.show('エラー: ' + error.message, 'error');
-        button.classList.remove('chatvault-saving');
-        button.classList.add('chatvault-error');
-        button.disabled = false;
+        actualButton.classList.remove('chatvault-saving');
+        actualButton.classList.add('chatvault-error');
+        actualButton.disabled = false;
         setTimeout(() => {
-          button.classList.remove('chatvault-error');
+          actualButton.classList.remove('chatvault-error');
         }, 2000);
       }
     });
   }
 
-  // Add save button to a Claude Artifact container
+  // Claude Artifactコンテナに保存ボタンを追加（プロバイダに委譲）
   function addSaveButtonToArtifact(artifactContainer) {
     try {
-      if (!artifactContainer || !artifactContainer.isConnected) return;
-      // Avoid duplicate buttons inside the same artifact container
-      if (artifactContainer.querySelector(BUTTON_SELECTOR)) return;
-
-      // Only for Claude service
       if (service !== 'claude' || !claudeService) return;
-
-      const button = createSaveButton();
-      if (!button) return;
-
-      // Style for artifact button
-      button.style.display = 'inline-flex';
-      button.style.marginLeft = '8px';
-      button.style.marginTop = '4px';
-      button.style.verticalAlign = 'middle';
-      button.style.opacity = '0.7';
-      button.style.transition = 'opacity 0.2s';
-      button.addEventListener('mouseenter', () => (button.style.opacity = '1'));
-      button.addEventListener('mouseleave', () => (button.style.opacity = '0.7'));
-
-      // Prefer placing near title if exists; otherwise append to container end
-      const titleSelector = claudeService?.selectors?.artifactTitle;
-      const titleEl = titleSelector ? artifactContainer.querySelector(titleSelector) : null;
-      if (titleEl) {
-        // Insert after title element
-        titleEl.insertAdjacentElement('afterend', button);
-      } else {
-        artifactContainer.appendChild(button);
-      }
-
-      // Click handler routes to artifact extraction
-      button.addEventListener('click', (e) => {
+      const res = ClaudeProvider.addSaveButtonToArtifact(artifactContainer, createSaveButton, claudeService);
+      if (!res?.added) return;
+      const btn = res.button || artifactContainer.querySelector(BUTTON_SELECTOR);
+      if (!btn) return;
+      btn.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
-        log.info('ARTIFACT SAVE BUTTON CLICKED!', artifactContainer);
-        button.classList.add('chatvault-saving');
-        button.disabled = true;
+        log.info('ARTIFACT保存ボタンがクリックされました！', artifactContainer);
+        btn.classList.add('chatvault-saving');
+        btn.disabled = true;
         try {
           handleSaveClick(artifactContainer);
         } catch (error) {
           log.error('Error in handleSaveClick (artifact):', error);
           toast.show('エラー: ' + error.message, 'error');
-          button.classList.remove('chatvault-saving');
-          button.classList.add('chatvault-error');
-          button.disabled = false;
-          setTimeout(() => button.classList.remove('chatvault-error'), 2000);
+          btn.classList.remove('chatvault-saving');
+          btn.classList.add('chatvault-error');
+          btn.disabled = false;
+          setTimeout(() => btn.classList.remove('chatvault-error'), 2000);
         }
       });
-
-      log.debug('Artifact button added:', artifactContainer);
+      log.debug('Artifactボタンを追加:', artifactContainer);
     } catch (error) {
-      log.error('Failed to add artifact save button:', error);
+      log.error('Artifact保存ボタンの追加に失敗:', error);
     }
   }
 
-  // Handle save button click
+  // 保存ボタンクリックを処理
   async function handleSaveClick(messageElement) {
-    log.debug('handleSaveClick called for:', messageElement);
-    log.debug('Message element details:', {
+    log.debug('handleSaveClickが呼び出されました:', messageElement);
+    log.debug('メッセージ要素の詳細:', {
       tagName: messageElement.tagName,
       className: messageElement.className,
       textContent: messageElement.textContent?.substring(0, 100) + '...'
@@ -462,11 +328,11 @@ log.info('Content script loading...', window.location.href);
     try {
       let messageData;
 
-      // Claude Artifact: if the element itself is an artifact container, extract via ClaudeService
+      // Claude Artifact: 要素自体がartifactコンテナの場合、ClaudeService経由で抽出
       if (service === 'claude' && claudeService) {
         const artifactSelector = claudeService?.selectors?.artifactContainer;
         if (artifactSelector && messageElement.matches(artifactSelector)) {
-          log.debug('Detected artifact container. Extracting artifact...');
+          log.debug('Artifactコンテナを検出しました。Artifactを抽出中...');
           const artifact = await claudeService.extractArtifact(messageElement);
           if (!artifact || !artifact.content) {
             throw new Error('Artifact の抽出に失敗しました');
@@ -478,7 +344,7 @@ log.info('Content script loading...', window.location.href);
           try {
             artifacts = await claudeService.splitArtifactIfNeeded(artifact);
           } catch (e) {
-            log.warn('Artifact split failed, falling back to single save:', e);
+            log.warn('Artifact分割に失敗しました、単一保存にフォールバック:', e);
             artifacts = [artifact];
           }
 
@@ -508,12 +374,12 @@ log.info('Content script loading...', window.location.href);
               }
             };
 
-            log.debug('Sending artifact (possibly split) to background:', perPartMessage);
+            log.debug('Artifact（分割の可能性あり）をバックグラウンドに送信中:', perPartMessage);
             chrome.runtime.sendMessage({
               action: 'saveSingleMessage',
               ...perPartMessage
             }, (response) => {
-              log.info('Artifact part save response:', response);
+              log.info('Artifact部分保存レスポンス:', response);
               pending -= 1;
               if (!response || !response.success) {
                 anyError = true;
@@ -541,72 +407,59 @@ log.info('Content script loading...', window.location.href);
             });
           });
 
-          return; // Artifact 処理はここで終了
+          return; // Artifact処理はここで終了
         }
       }
 
       if (service === 'chatgpt') {
-        log.debug('Extracting ChatGPT message...');
-
-        // Simplified extraction for debugging
-        const messageText = messageElement.textContent || messageElement.innerText || 'No text found';
-        log.debug('Message text (first 200 chars):', messageText.substring(0, 200));
-
-        // Try to determine if it's a user message
-        const isUser = messageElement.getAttribute('data-message-author-role') === 'user';
-        log.debug('Is user message:', isUser);
-
+        log.debug('ChatGPTメッセージを抽出中...');
+        const extracted = ChatGPTProvider.extractSingleMessage(messageElement);
+        const roleLabel = extracted.role === 'user' ? 'User' : 'Assistant';
         messageData = {
-          messageContent: `### ${isUser ? 'User' : 'Assistant'}\n\n${messageText}`,
+          messageContent: `### ${roleLabel}\n\n${extracted.content}`,
           messageType: 'single',
-          conversationTitle: document.title.replace(' | ChatGPT', '').replace(' - ChatGPT', ''),
+          conversationTitle: extracted.title,
           service: service
         };
-
-        log.debug('Prepared message data:', messageData);
+        log.debug('準備されたメッセージデータ:', messageData);
       } else if (service === 'claude' && claudeService) {
-        // Claude用のメッセージ抽出（ClaudeServiceを使用）
-        log.debug('Extracting Claude message using ClaudeService');
-
-        const extractedMessage = claudeService.extractSingleMessage(messageElement);
+        // Claude用のメッセージ抽出（ClaudeProvider経由）
+        log.debug('ClaudeProviderを使用してClaudeメッセージを抽出中');
+        const extractedMessage = ClaudeProvider.extractSingleMessage(messageElement, claudeService);
         if (!extractedMessage) {
-          throw new Error('Failed to extract message');
+          throw new Error('メッセージの抽出に失敗しました');
         }
-
-        const conversationTitle = claudeService.getConversationTitle();
         const role = extractedMessage.role === 'user' ? 'User' : 'Assistant';
-
         messageData = {
           messageContent: `### ${role}\n\n${extractedMessage.content}`,
           messageType: 'single',
-          conversationTitle: conversationTitle,
+          conversationTitle: extractedMessage.title,
           service: service
         };
 
-         log.debug('Message data:', messageData);
-      } else if (service === 'gemini' && geminiService) {
-        // Gemini 用のメッセージ抽出（GeminiServiceを使用）
-        log.debug('Extracting Gemini message using GeminiService');
-        const extracted = geminiService.extractSingleMessage(messageElement);
+         log.debug('メッセージデータ:', messageData);
+      } else if (service === 'gemini') {
+        // Gemini用のメッセージ抽出（GeminiProvider経由）
+        log.debug('GeminiProviderを使用してGeminiメッセージを抽出中');
+        const extracted = GeminiProvider.extractSingleMessage(messageElement, geminiService);
         if (!extracted) {
-          throw new Error('Failed to extract message');
+          throw new Error('メッセージの抽出に失敗しました');
         }
-        const title = geminiService.getConversationTitle();
         const role = extracted.role === 'user' ? 'User' : 'Assistant';
         messageData = {
           messageContent: `### ${role}\n\n${extracted.content}`,
           messageType: 'single',
-          conversationTitle: title,
+          conversationTitle: extracted.title,
           service: service
         };
-        log.debug('Gemini message data:', messageData);
+        log.debug('Geminiメッセージデータ:', messageData);
       } else {
-        // Fallback to basic DOM extraction for other services
+        // 他のサービスのための基本的なDOM抽出にフォールバック
         const selectors = getSelectors();
         const contentElement = messageElement.querySelector(selectors.content);
 
         if (!contentElement) {
-          throw new Error('Could not find message content');
+          throw new Error('メッセージコンテンツが見つかりませんでした');
         }
 
         const isUser = messageElement.matches(selectors.userMessage);
@@ -620,8 +473,8 @@ log.info('Content script loading...', window.location.href);
         };
       }
 
-      // Send to background script
-      log.debug('Sending message to background:', {
+      // バックグラウンドスクリプトに送信
+      log.debug('バックグラウンドにメッセージを送信中:', {
         action: 'saveSingleMessage',
         ...messageData
       });
@@ -630,24 +483,24 @@ log.info('Content script loading...', window.location.href);
         action: 'saveSingleMessage',
         ...messageData
       }, (response) => {
-        log.info('Save response:', response);
+        log.info('保存レスポンス:', response);
 
         if (chrome.runtime.lastError) {
-          log.error('Runtime error:', chrome.runtime.lastError);
+          log.error('ランタイムエラー:', chrome.runtime.lastError);
           toast.show('保存に失敗しました: ' + chrome.runtime.lastError.message, 'error');
           return;
         }
         if (response && response.success) {
-          // Show success feedback
-          if (button) {
-            button.classList.remove('chatvault-saving');
-            button.classList.add('chatvault-saved');
-            button.disabled = false;
+          // 成功フィードバックを表示
+          if (actualButton) {
+            actualButton.classList.remove('chatvault-saving');
+            actualButton.classList.add('chatvault-saved');
+            actualButton.disabled = false;
             setTimeout(() => {
-              button.classList.remove('chatvault-saved');
+              actualButton.classList.remove('chatvault-saved');
             }, 2000);
           }
-          log.info(`Message saved via ${response.method}: ${response.filename}`);
+          log.info(`メッセージを${response.method}経由で保存: ${response.filename}`);
           if (response.message) {
             toast.show(response.message, 'success');
           } else if (response.method === 'clipboard') {
@@ -656,35 +509,35 @@ log.info('Content script loading...', window.location.href);
             toast.show('メッセージを保存しました。', 'success');
           }
         } else {
-          log.error('Failed to save message:', response?.error);
+          log.error('メッセージの保存に失敗:', response?.error);
           const msg = response?.userMessage || toUserMessage(response?.errorCode, response?.error);
           toast.show(msg, 'error');
-          if (button) {
-            button.classList.remove('chatvault-saving');
-            button.classList.add('chatvault-error');
-            button.disabled = false;
+          if (actualButton) {
+            actualButton.classList.remove('chatvault-saving');
+            actualButton.classList.add('chatvault-error');
+            actualButton.disabled = false;
             setTimeout(() => {
-              button.classList.remove('chatvault-error');
+              actualButton.classList.remove('chatvault-error');
             }, 2000);
           }
         }
       });
 
     } catch (error) {
-      log.error('Error handling save click:', error);
+      log.error('保存クリック処理エラー:', error);
       toast.show('エラー: ' + error.message, 'error');
     }
   }
 
-  // Observe DOM changes and add buttons to new messages
+  // DOM変更を監視して新しいメッセージにボタンを追加
   function observeMessages() {
     const selectors = getSelectors();
     if (!selectors) return;
 
-    log.info(`Starting message observation for ${service} with selectors:`, selectors);
-    log.debug(`Current URL: ${window.location.href}`);
+    log.info(`${service}のメッセージ監視を開始、セレクタ:`, selectors);
+    log.debug(`現在のURL: ${window.location.href}`);
 
-    // Initial scan for existing messages
+    // 既存メッセージの初期スキャン
     let messages = document.querySelectorAll(selectors.container);
 
     // Claude特別処理: アシスタントメッセージも追加で検索
@@ -695,15 +548,15 @@ log.info('Content script loading...', window.location.href);
       messages = Array.from(new Set(allMessages));
     }
 
-    log.debug('Found', messages.length, 'messages with primary selectors');
+    log.debug('主要セレクタで', messages.length, '個のメッセージを発見');
 
-    // Debug: クラウドのDOM構造を詳しく調査
+    // デバッグ: ClaudeのDOM構造を詳しく調査
     if (service === 'claude' && messages.length === 0) {
-      log.debug('No messages found, investigating Claude DOM...');
+      log.debug('メッセージが見つかりませんでした、ClaudeのDOMを調査中...');
 
       // 会話エリアを探す
       const conversationContainers = document.querySelectorAll('main, [role="main"], div[class*="conversation"], div[class*="chat"]');
-      log.debug('Potential conversation containers:', conversationContainers.length);
+      log.debug('潜在的な会話コンテナ:', conversationContainers.length);
 
       // テキストを含む要素を探す
       const allDivs = document.querySelectorAll('div');
@@ -714,11 +567,11 @@ log.info('Content script loading...', window.location.href);
                !div.querySelector('header') &&
                !div.matches('button, a, svg');
       });
-      log.debug('Message-like divs found:', messagelikeDivs.length);
+      log.debug('メッセージのようなdivを発見:', messagelikeDivs.length);
 
       // 最初の数個を詳しく見る
       messagelikeDivs.slice(0, 3).forEach((div, index) => {
-        log.debug(`Potential message ${index}:`, {
+        log.debug(`潜在的なメッセージ ${index}:`, {
           classes: div.className,
           attributes: Array.from(div.attributes).map(attr => `${attr.name}="${attr.value}"`),
           textPreview: div.textContent?.substring(0, 100) + '...'
@@ -726,11 +579,11 @@ log.info('Content script loading...', window.location.href);
       });
     }
 
-    // If no messages found, try broader selectors but only in conversation area
+    // メッセージが見つからない場合、より広いセレクタを試すが会話エリア内のみ
     if (messages.length === 0) {
-      log.debug('No messages found, trying broader selectors...');
+      log.debug('メッセージが見つかりませんでした、より広いセレクタを試行中...');
       if (service === 'chatgpt') {
-        // Look specifically in the main conversation area
+        // メイン会話エリア内を特に探す
         const conversationArea = document.querySelector('main[role="main"], [role="main"], main, .conversation-turn');
         if (conversationArea) {
           messages = conversationArea.querySelectorAll('[data-message-author-role], .group.w-full, [class*="conversation-turn"]');
@@ -741,16 +594,16 @@ log.info('Content script loading...', window.location.href);
         // 会話エリア内のgroup.relativeクラスを持つ要素を検索
         const conversationArea = document.querySelector('main') || document.querySelector('[role="main"]') || document.body;
         messages = conversationArea.querySelectorAll('div.group.relative');
-        log.debug('Found group.relative elements:', messages.length);
+        log.debug('group.relative要素を発見:', messages.length);
       }
-      log.debug('Found', messages.length, 'messages with broader selectors');
+      log.debug('より広いセレクタで', messages.length, '個のメッセージを発見');
     }
 
-    // If still no messages, wait a bit and try again
+    // まだメッセージが見つからない場合、少し待って再試行
     if (messages.length === 0) {
-      log.debug('Still no messages found, will retry in 2 seconds...');
+      log.debug('まだメッセージが見つかりませんでした、2秒後に再試行します...');
       setTimeout(() => {
-        // Service-specific fallback selectors
+                  // サービス固有のフォールバックセレクタ
         let retryMessages = [];
         if (service === 'claude') {
           // Claude用: メッセージの親要素を探す（ユーザーメッセージの親要素を取得）
@@ -773,50 +626,50 @@ log.info('Content script loading...', window.location.href);
           });
 
           retryMessages = messageParents;
-          log.debug('Claude fallback: found', retryMessages.length, 'message parents');
+          log.debug('Claudeフォールバック: ', retryMessages.length, '個のメッセージ親要素を発見');
         } else {
           retryMessages = document.querySelectorAll('div, article, section');
-          log.debug('General fallback: found', retryMessages.length, 'potential elements');
+          log.debug('一般的なフォールバック: ', retryMessages.length, '個の潜在的な要素を発見');
         }
 
-        // Add buttons to any element that looks like it could be a message
+        // メッセージのように見える要素にボタンを追加
         Array.from(retryMessages).filter(el => {
           const text = el.textContent?.trim();
-          // More sophisticated filtering for Claude
+          // Claude用のより洗練されたフィルタリング
           if (service === 'claude') {
             return text && text.length > 20 && text.length < 5000 &&
                    !el.querySelector('input') && !el.querySelector('button') &&
                    !el.matches('nav, header, footer, aside');
           }
-          return text && text.length > 10 && text.length < 10000; // Reasonable message length
-        }).slice(0, 15).forEach(addSaveButton); // Limit to first 15 to avoid spam
+          return text && text.length > 10 && text.length < 10000; // 妥当なメッセージ長
+        }).slice(0, 15).forEach(addSaveButton); // スパムを避けるために最初の15個に制限
       }, 2000);
     }
 
     messages.forEach(addSaveButton);
 
-    // Initial scan for artifact containers on Claude
+    // Claudeのartifactコンテナの初期スキャン
     if (service === 'claude' && claudeService?.selectors?.artifactContainer) {
       const artifactSelector = claudeService.selectors.artifactContainer;
       const artifacts = document.querySelectorAll(artifactSelector);
-      log.debug('Found artifact containers:', artifacts.length);
+      log.debug('Artifactコンテナを発見:', artifacts.length);
       artifacts.forEach(addSaveButtonToArtifact);
     }
 
-    // Set up mutation observer for new messages
+    // 新しいメッセージ用のmutation observerを設定
     const observer = new MutationObserver(debounce((mutations) => {
       mutations.forEach((mutation) => {
         mutation.addedNodes.forEach((node) => {
           if (node.nodeType === Node.ELEMENT_NODE) {
-            // Check if the added node is a message
+            // 追加されたノードがメッセージかどうかをチェック
             if (node.matches && node.matches(selectors.container)) {
               addSaveButton(node);
             }
-            // Check if the added node contains messages
+            // 追加されたノードがメッセージを含むかどうかをチェック
             const newMessages = node.querySelectorAll ? node.querySelectorAll(selectors.container) : [];
             newMessages.forEach(addSaveButton);
 
-            // Artifact containers on Claude
+            // ClaudeのArtifactコンテナ
             if (service === 'claude' && claudeService?.selectors?.artifactContainer) {
               const artifactSelector = claudeService.selectors.artifactContainer;
               if (node.matches && node.matches(artifactSelector)) {
@@ -836,13 +689,13 @@ log.info('Content script loading...', window.location.href);
               const targetEnd = getClaudeTargetEnd(container);
               if (btn && targetEnd && btn.parentElement !== targetEnd) {
                 targetEnd.appendChild(btn);
-                log.debug('Observer: Repositioned Claude save button to final output end');
+                log.debug('Observer: Claude保存ボタンを最終出力末尾に再配置');
               }
               }
             }
           }
         });
-        // NEW: Handle attribute changes that may indicate message visibility/update (SPA)
+        // 新機能: メッセージの可視性/更新を示す可能性のある属性変更を処理（SPA）
         if (mutation.type === 'attributes' && mutation.target && mutation.target.matches) {
           const targetEl = mutation.target;
           if (targetEl.matches(selectors.container)) {
@@ -860,7 +713,7 @@ log.info('Content script loading...', window.location.href);
             const targetEnd = getClaudeTargetEnd(targetEl);
             if (btn && targetEnd && btn.parentElement !== targetEnd) {
               targetEnd.appendChild(btn);
-              log.debug('Observer(attributes): Repositioned Claude save button to final output end');
+              log.debug('Observer(attributes): Claude保存ボタンを最終出力末尾に再配置');
             }
           }
         }
@@ -874,7 +727,7 @@ log.info('Content script loading...', window.location.href);
     });
   }
 
-  // Debounce function to limit observer callbacks
+  // オブザーバーコールバックを制限するデバウンス関数
   function debounce(func, wait) {
     let timeout;
     return function executedFunction(...args) {
@@ -887,98 +740,23 @@ log.info('Content script loading...', window.location.href);
     };
   }
 
-  // Handle message capture using service-specific extraction
+  // サービス固有の抽出を使用してメッセージキャプチャを処理
   function handleCaptureMessages(mode, count = null) {
     try {
       if (service === 'gemini') {
-        // Gemini専用の抽出ロジック
+        // Gemini専用の抽出ロジック（プロバイダに委譲）
         if (!geminiService) geminiService = new GeminiService();
-        let messages = [];
-        let title = '';
-        switch (mode) {
-          case 'all':
-            messages = geminiService.extractAllMessages();
-            break;
-          case 'recent':
-            messages = geminiService.extractRecentMessages(count || 30);
-            break;
-          case 'selected':
-            messages = geminiService.extractSelectedMessages();
-            break;
-          default:
-            throw new Error('Invalid capture mode: ' + mode);
-        }
-        title = geminiService.getConversationTitle();
-
-        const formattedMessages = messages.map(msg => ({
-          speaker: msg.role === 'user' ? 'User' : 'Assistant',
-          content: msg.content
-        }));
-
-        return {
-          success: true,
-          messages: formattedMessages,
-          title
-        };
+        return GeminiProvider.captureMessages(mode, count || null, geminiService);
       }
       if (service === 'claude' && claudeService) {
-        // Claude専用の抽出ロジック
-        let messages = [];
-        let title = '';
-
-        switch (mode) {
-          case 'all':
-            messages = claudeService.extractAllMessages();
-            break;
-          case 'recent':
-            messages = claudeService.extractLastNMessages(count || 30);
-            break;
-          case 'selected':
-            messages = claudeService.extractSelectedMessages();
-            break;
-          default:
-            throw new Error('Invalid capture mode: ' + mode);
-        }
-
-        title = claudeService.getConversationTitle();
-
-        // メッセージをMarkdown形式に変換
-        const formattedMessages = messages.map(msg => ({
-          speaker: msg.role === 'user' ? 'User' : 'Assistant',
-          content: msg.content
-        }));
-
-        return {
-          success: true,
-          messages: formattedMessages,
-          title: title
-        };
+        // Claude専用の抽出ロジック（プロバイダに委譲）
+        return ClaudeProvider.captureMessages(mode, count || null, claudeService);
       } else {
-        // ChatGPT用の既存のロジック
-        const selectors = getSelectors();
-        const allMessages = Array.from(document.querySelectorAll(selectors.container))
-          .map(msg => {
-            const contentEl = msg.querySelector(selectors.content);
-            const isUser = msg.matches(selectors.userMessage);
-            return {
-              speaker: isUser ? 'User' : 'Assistant',
-              content: contentEl ? contentEl.innerHTML : ''
-            };
-          });
-
-        let messages = allMessages;
-        if (mode === 'recent' && count) {
-          messages = allMessages.slice(-count);
-        }
-
-        return {
-          success: true,
-          messages: messages,
-          title: document.title.replace(' | Claude', '').replace(' - ChatGPT', '').replace(' | ChatGPT', '')
-        };
+        // ChatGPT用のロジックをプロバイダに委譲
+        return ChatGPTProvider.captureMessages(mode, count || null);
       }
     } catch (error) {
-      console.error('Error capturing messages:', error);
+      console.error('メッセージキャプチャエラー:', error);
       return {
         success: false,
         error: error.message
@@ -986,16 +764,16 @@ log.info('Content script loading...', window.location.href);
     }
   }
 
-  // Clipboard copy functionality
+  // クリップボードコピー機能
   async function copyToClipboard(content) {
     try {
-      // Try modern clipboard API first
+      // まず最新のクリップボードAPIを試す
       if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(content);
-        console.log('[ChatVault] Content copied to clipboard using navigator.clipboard');
+        console.log('[ChatVault] navigator.clipboardを使用してコンテンツをクリップボードにコピーしました');
         return { success: true, method: 'navigator.clipboard' };
       } else {
-        // Fallback to execCommand method
+        // execCommand方式にフォールバック
         const textArea = document.createElement('textarea');
         textArea.value = content;
         textArea.style.position = 'fixed';
@@ -1009,27 +787,27 @@ log.info('Content script loading...', window.location.href);
         document.body.removeChild(textArea);
 
         if (successful) {
-          console.log('[ChatVault] Content copied to clipboard using execCommand');
+          console.log('[ChatVault] execCommandを使用してコンテンツをクリップボードにコピーしました');
           return { success: true, method: 'execCommand' };
         } else {
-          throw new Error('execCommand copy failed');
+          throw new Error('execCommandコピーに失敗しました');
         }
       }
     } catch (error) {
-      console.error('[ChatVault] Failed to copy to clipboard:', error);
+      console.error('[ChatVault] クリップボードへのコピーに失敗:', error);
       return { success: false, error: error.message };
     }
   }
 
-  // File System Access API functionality
+  // File System Access API機能
   async function handleFileSystemSave(content, relativePath) {
     try {
-      console.log('[ChatVault] Attempting File System Access API save...');
+      console.log('[ChatVault] File System Access API保存を試行中...');
 
-      // Load the directory handle from IndexedDB (page origin)
+      // IndexedDBからディレクトリハンドルを読み込み（ページオリジン）
       let dirHandle = await loadDirectoryHandle();
       if (!dirHandle) {
-        // Try to prompt the user to pick the vault directory on-demand (requires user gesture)
+        // ユーザーにVaultディレクトリの選択を促す（ユーザージェスチャーが必要）
         if (typeof window.showDirectoryPicker === 'function') {
           try {
             dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
@@ -1042,16 +820,16 @@ log.info('Content script loading...', window.location.href);
         }
       }
 
-      // Verify permission
+      // 権限を確認
       const permission = await dirHandle.queryPermission({ mode: 'readwrite' });
       if (permission !== 'granted') {
         const newPermission = await dirHandle.requestPermission({ mode: 'readwrite' });
         if (newPermission !== 'granted') {
-          throw new Error('File system permission denied');
+          throw new Error('ファイルシステム権限が拒否されました');
         }
       }
 
-      // Parse the path and create directories as needed
+      // パスを解析して必要に応じてディレクトリを作成
       const pathSegments = relativePath.split('/').filter(segment => segment);
       const fileName = pathSegments.pop();
 
@@ -1060,21 +838,21 @@ log.info('Content script loading...', window.location.href);
         currentDir = await currentDir.getDirectoryHandle(segment, { create: true });
       }
 
-      // Create or overwrite the file
+      // ファイルを作成または上書き
       const fileHandle = await currentDir.getFileHandle(fileName, { create: true });
       const writable = await fileHandle.createWritable();
       await writable.write(content);
       await writable.close();
 
-      console.log('[ChatVault] File saved successfully via File System Access API');
+      console.log('[ChatVault] File System Access API経由でファイルを正常に保存しました');
       return { success: true, method: 'filesystem' };
     } catch (error) {
-      console.error('[ChatVault] File System Access API error:', error);
+      console.error('[ChatVault] File System Access APIエラー:', error);
       return { success: false, error: error.message };
     }
   }
 
-  // Try to ensure directory handle on user gesture if saveMethod prefers filesystem
+  // saveMethodがfilesystemを優先する場合、ユーザージェスチャーでディレクトリハンドルを確保
   async function ensureDirectoryHandleIfNeeded() {
     try {
       const prefs = await new Promise((resolve) => {
@@ -1083,7 +861,7 @@ log.info('Content script loading...', window.location.href);
       const method = prefs?.saveMethod || 'filesystem';
       if (method !== 'filesystem' && method !== 'auto') return;
 
-      // Check existing handle
+      // 既存のハンドルをチェック
       const existing = await loadDirectoryHandle();
       if (existing) {
         const perm = await existing.queryPermission?.({ mode: 'readwrite' });
@@ -1092,18 +870,18 @@ log.info('Content script loading...', window.location.href);
         if (req === 'granted') return;
       }
 
-      // No handle or no permission: prompt user (must be in user gesture)
+      // ハンドルがないか権限がない場合: ユーザーに促す（ユーザージェスチャー内である必要がある）
       if (typeof window.showDirectoryPicker === 'function') {
         const dir = await window.showDirectoryPicker({ mode: 'readwrite' });
         await saveDirectoryHandle(dir);
       }
     } catch (e) {
-      // Non-fatal: background will fall back to other methods
+      // 致命的でない: バックグラウンドが他の方式にフォールバック
       log.warn('ensureDirectoryHandleIfNeeded skipped:', e);
     }
   }
 
-  // Load directory handle from IndexedDB
+  // IndexedDBからディレクトリハンドルを読み込み
   async function loadDirectoryHandle() {
     try {
       const db = await openDB();
@@ -1122,12 +900,12 @@ log.info('Content script loading...', window.location.href);
         };
       });
     } catch (error) {
-      console.error('[ChatVault] Error loading directory handle:', error);
+      console.error('[ChatVault] ディレクトリハンドルの読み込みエラー:', error);
       return null;
     }
   }
 
-  // Save directory handle to IndexedDB (page origin)
+  // IndexedDBにディレクトリハンドルを保存（ページオリジン）
   async function saveDirectoryHandle(handle) {
     try {
       const db = await openDB();
@@ -1140,11 +918,11 @@ log.info('Content script loading...', window.location.href);
       });
       db.close();
     } catch (error) {
-      console.error('[ChatVault] Error saving directory handle:', error);
+      console.error('[ChatVault] ディレクトリハンドルの保存エラー:', error);
     }
   }
 
-  // Open IndexedDB
+  // IndexedDBを開く
   function openDB() {
     return new Promise((resolve, reject) => {
       const request = indexedDB.open('ChatVaultDB', 1);
@@ -1161,7 +939,7 @@ log.info('Content script loading...', window.location.href);
     });
   }
 
-  // Selection highlighting functionality
+  // 選択ハイライト機能
   let selectionOverlay = null;
   let isSelectionMode = false;
 
@@ -1185,7 +963,7 @@ log.info('Content script loading...', window.location.href);
         pointer-events: none;
         box-shadow: 0 4px 12px rgba(0,0,0,0.15);
       `;
-      selectionOverlay.textContent = 'Selection mode: Highlight text and press Save';
+      selectionOverlay.textContent = '選択モード: テキストをハイライトして保存を押してください';
       document.body.appendChild(selectionOverlay);
     }
   }
@@ -1208,7 +986,7 @@ log.info('Content script loading...', window.location.href);
     const container = document.createElement('div');
     container.appendChild(range.cloneContents());
 
-    // Try to preserve formatting
+    // フォーマットを保持しようとする
     let content = container.innerHTML;
     if (!content.trim()) {
       content = selection.toString();
@@ -1226,7 +1004,7 @@ log.info('Content script loading...', window.location.href);
     };
   }
 
-  // Listen for messages from popup and background script
+  // ポップアップとバックグラウンドスクリプトからのメッセージをリッスン
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === 'getPageInfo') {
       sendResponse({
@@ -1242,23 +1020,21 @@ log.info('Content script loading...', window.location.href);
       });
     } else if (request.action === 'saveActive') {
       if (service === 'gemini') {
-        // Gemini: 最後のメッセージを単一保存
+        // Gemini: 最後のメッセージを単一保存（プロバイダに委譲）
         try {
           if (!geminiService) geminiService = new GeminiService();
-          const all = geminiService.extractAllMessages();
-          if (all.length === 0) {
-            sendResponse({ success: false, error: 'No messages found on the page' });
+          const result = GeminiProvider.captureMessages('all', null, geminiService);
+          if (!result.success || result.messages.length === 0) {
+            sendResponse({ success: false, error: 'ページにメッセージが見つかりませんでした' });
             return true;
           }
-          const last = all[all.length - 1];
-          const role = last.role === 'user' ? 'User' : 'Assistant';
-          const title = geminiService.getConversationTitle();
+          const last = result.messages[result.messages.length - 1];
           chrome.runtime.sendMessage({
             action: 'saveSingleMessage',
             service,
-            messageContent: `### ${role}\n\n${last.content}`,
+            messageContent: `### ${last.speaker}\n\n${last.content}`,
             messageType: 'single',
-            conversationTitle: title
+            conversationTitle: result.title
           }, (response) => {
             sendResponse(response);
           });
@@ -1267,15 +1043,15 @@ log.info('Content script loading...', window.location.href);
         }
         return true;
       }
-      // Find the active message (user can hover or click on it)
+      // アクティブなメッセージを見つける（ユーザーがホバーまたはクリックできる）
       const messageElements = document.querySelectorAll(getSelectors().container);
       if (messageElements.length > 0) {
-        // Get the last message as the "active" one
+        // 最後のメッセージを「アクティブ」なものとして取得
         const lastMessage = messageElements[messageElements.length - 1];
         handleSaveClick(lastMessage);
         sendResponse({ success: true });
       } else {
-        sendResponse({ success: false, error: 'No messages found on the page' });
+        sendResponse({ success: false, error: 'ページにメッセージが見つかりませんでした' });
       }
     } else if (request.action === 'saveSelected') {
       if (service === 'claude' && claudeService) {
@@ -1319,24 +1095,20 @@ log.info('Content script loading...', window.location.href);
               sendResponse(response);
             });
             return true;
-          } else {
-            enableSelectionMode();
-            sendResponse({ success: false, error: 'No text selected. Please select some text first.' });
-          }
+                      } else {
+              enableSelectionMode();
+              sendResponse({ success: false, error: 'テキストが選択されていません。まずテキストを選択してください。' });
+            }
         }
       } else if (service === 'gemini') {
         try {
           if (!geminiService) geminiService = new GeminiService();
-          const selectedMessages = geminiService.extractSelectedMessages();
-          if (selectedMessages.length > 0) {
-            const title = geminiService.getConversationTitle();
+          const result = GeminiProvider.captureMessages('selected', null, geminiService);
+          if (result.success && result.messages.length > 0) {
             chrome.runtime.sendMessage({
               action: 'saveMultipleMessages',
-              messages: selectedMessages.map(msg => ({
-                speaker: msg.role === 'user' ? 'User' : 'Assistant',
-                content: msg.content
-              })),
-              conversationTitle: title,
+              messages: result.messages,
+              conversationTitle: result.title,
               service,
               messageType: 'selection'
             }, (response) => {
@@ -1366,7 +1138,7 @@ log.info('Content script loading...', window.location.href);
               return true;
             } else {
               enableSelectionMode();
-              sendResponse({ success: false, error: 'No text selected. Please select some text first.' });
+              sendResponse({ success: false, error: 'テキストが選択されていません。まずテキストを選択してください。' });
             }
           }
         } catch (e) {
@@ -1376,7 +1148,7 @@ log.info('Content script loading...', window.location.href);
       } else {
         const selectedContent = getSelectedContent();
         if (selectedContent && selectedContent.text) {
-          // Send selected content to background script
+          // 選択されたコンテンツをバックグラウンドスクリプトに送信
           chrome.runtime.sendMessage({
             action: 'saveSingleMessage',
             service: service,
@@ -1395,28 +1167,28 @@ log.info('Content script loading...', window.location.href);
           sendResponse({ success: true, content: selectedContent.text });
         } else {
           enableSelectionMode();
-          sendResponse({ success: false, error: 'No text selected. Please select some text first.' });
+          sendResponse({ success: false, error: 'テキストが選択されていません。まずテキストを選択してください。' });
         }
       }
     } else if (request.action === 'saveLastN') {
       if (service === 'gemini') {
         try {
           if (!geminiService) geminiService = new GeminiService();
-          const messages = geminiService.extractRecentMessages(request.count || 30).map(msg => ({
-            speaker: msg.role === 'user' ? 'User' : 'Assistant',
-            content: msg.content
-          }));
-          const title = geminiService.getConversationTitle();
-          chrome.runtime.sendMessage({
-            action: 'saveMultipleMessages',
-            messages,
-            conversationTitle: title,
-            service,
-            messageType: 'recent',
-            count: request.count
-          }, (response) => {
-            sendResponse(response);
-          });
+          const result = GeminiProvider.captureMessages('recent', request.count || 30, geminiService);
+          if (result.success) {
+            chrome.runtime.sendMessage({
+              action: 'saveMultipleMessages',
+              messages: result.messages,
+              conversationTitle: result.title,
+              service,
+              messageType: 'recent',
+              count: request.count
+            }, (response) => {
+              sendResponse(response);
+            });
+          } else {
+            sendResponse({ success: false, error: result.error || '抽出に失敗しました' });
+          }
         } catch (e) {
           sendResponse({ success: false, error: e.message });
         }
@@ -1424,7 +1196,7 @@ log.info('Content script loading...', window.location.href);
       }
       const result = handleCaptureMessages('recent', request.count);
       if (result.success) {
-        // Send to background script for saving
+        // 保存のためにバックグラウンドスクリプトに送信
         chrome.runtime.sendMessage({
           action: 'saveMultipleMessages',
           messages: result.messages,
@@ -1505,7 +1277,7 @@ log.info('Content script loading...', window.location.href);
           }).flat();
         }
 
-        // Send to background script for saving
+        // 保存のためにバックグラウンドスクリプトに送信
         chrome.runtime.sendMessage({
           action: 'saveMultipleMessages',
           messages: processedMessages,
@@ -1524,7 +1296,7 @@ log.info('Content script loading...', window.location.href);
     } else if (request.action === 'captureAllMessages') {
       sendResponse(handleCaptureMessages('all'));
     } else if (request.action === 'copyToClipboard') {
-      // Handle clipboard copy request from background script
+      // バックグラウンドスクリプトからのクリップボードコピーリクエストを処理
       copyToClipboard(request.content).then(result => {
         sendResponse(result);
       }).catch(error => {
@@ -1532,7 +1304,7 @@ log.info('Content script loading...', window.location.href);
       });
       return true; // Keep message channel open for async response
     } else if (request.action === 'saveViaFileSystem') {
-      // Handle File System Access API save request
+      // File System Access API保存リクエストを処理
       handleFileSystemSave(request.content, request.relativePath).then(result => {
         sendResponse(result);
       }).catch(error => {
@@ -1543,7 +1315,7 @@ log.info('Content script loading...', window.location.href);
     return true; // Keep message channel open for async response
   });
 
-  // Initialize with longer delay for dynamic content
+  // 動的コンテンツ用により長い遅延で初期化
   function initializeWithDelay() {
     observeMessages();
 
