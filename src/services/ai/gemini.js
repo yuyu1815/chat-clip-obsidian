@@ -3,7 +3,7 @@
  * gemini.google.com / aistudio.google.com のチャット画面から会話を抽出
  */
 
-import { TextSplitter } from '../utils/workerManager.js';
+import { TextSplitter } from '../../utils/data/workerManager.js';
 
 class GeminiService {
   constructor() {

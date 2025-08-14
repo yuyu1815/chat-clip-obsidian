@@ -3,7 +3,7 @@
  * Claude.aiのチャット画面から会話データを抽出する
  */
 
-import { TextSplitter } from '../utils/workerManager.js';
+import { TextSplitter } from '../../utils/data/workerManager.js';
 
 class ClaudeService {
   constructor() {
@@ -349,30 +349,30 @@ class ClaudeService {
   extractSingleMessage(messageElement) {
     try {
       // メッセージの種類を判定
-      const isUserMessage = messageElement.hasAttribute('data-testid') && 
+      const isUserMessage = messageElement.hasAttribute('data-testid') &&
                            messageElement.getAttribute('data-testid') === 'user-message';
       const isAssistantMessage = messageElement.hasAttribute('data-is-streaming');
-      
+
       const role = isUserMessage ? 'user' : (isAssistantMessage ? 'assistant' : 'unknown');
-      
+
       // メッセージ内容を取得
       let content = '';
-      
+
       // コンテンツ要素を探す
       const contentElement = messageElement.querySelector(this.selectors.messageContent) || messageElement;
-      
+
       // クローンして処理（元のDOMを変更しない）
       const clonedContent = contentElement.cloneNode(true);
-      
+
       // 保存ボタンを削除（もし存在すれば）
       const saveButtons = clonedContent.querySelectorAll('.chatvault-save-btn');
       saveButtons.forEach(btn => btn.remove());
-      
+
       // Claudeの思考プロセスUIを除去（Obsidianには保存しない）
       try {
         // 明示的なクラス名に基づく除去（Claudeの思考プロセス表示ブロック）
         clonedContent.querySelectorAll('[class*="font-claude-response"]').forEach(el => el.remove());
-        
+
         // ラベルに基づく除去（ボタンや見出しのテキストに「思考プロセス」等が含まれる場合）
         const thinkingLabels = /(思考プロセス|Chain of Thought|Thinking)/i;
         const buttons = Array.from(clonedContent.querySelectorAll('button')).filter(btn => thinkingLabels.test(btn.textContent || ''));
@@ -383,7 +383,7 @@ class ClaudeService {
           }
         });
       } catch (_) {}
-      
+
       // コードブロックを処理
       const codeBlocks = clonedContent.querySelectorAll('pre');
       codeBlocks.forEach(pre => {
@@ -394,7 +394,7 @@ class ClaudeService {
         placeholder.textContent = `\`\`\`${language}\n${codeText}\n\`\`\``;
         pre.replaceWith(placeholder);
       });
-      
+
       // インライン数式を処理
       const mathInline = clonedContent.querySelectorAll(this.selectors.mathInline);
       mathInline.forEach(math => {
@@ -403,7 +403,7 @@ class ClaudeService {
         placeholder.textContent = `$${mathText}$`;
         math.replaceWith(placeholder);
       });
-      
+
       // ブロック数式を処理
       const mathBlock = clonedContent.querySelectorAll(this.selectors.mathBlock);
       mathBlock.forEach(math => {
@@ -412,10 +412,10 @@ class ClaudeService {
         placeholder.textContent = `$$\n${mathText}\n$$`;
         math.replaceWith(placeholder);
       });
-      
+
       // テキストコンテンツを取得
       content = this.extractTextContent(clonedContent);
-      
+
       return {
         role,
         content: content.trim(),
@@ -441,10 +441,10 @@ class ClaudeService {
       null,
       false
     );
-    
+
     let node;
     let lastWasBlock = false;
-    
+
     while (node = walker.nextNode()) {
       if (node.nodeType === Node.TEXT_NODE) {
         const content = node.textContent.trim();
@@ -462,14 +462,14 @@ class ClaudeService {
         if (isBlock) {
           lastWasBlock = true;
         }
-        
+
         // 改行が必要な要素
         if (node.tagName === 'BR') {
           text += '\n';
         }
       }
     }
-    
+
     return text;
   }
 
@@ -481,14 +481,14 @@ class ClaudeService {
     try {
       const messages = [];
       const messageElements = document.querySelectorAll(this.selectors.messageContainer);
-      
+
       messageElements.forEach(element => {
         const message = this.extractSingleMessage(element);
         if (message && message.content) {
           messages.push(message);
         }
       });
-      
+
       return messages;
     } catch (error) {
       console.error('[Claude Service] Error getting all messages:', error);
@@ -516,10 +516,10 @@ class ClaudeService {
       if (!selection.rangeCount || selection.isCollapsed) {
         return [];
       }
-      
+
       const range = selection.getRangeAt(0);
       const allMessages = this.extractAllMessages();
-      
+
       return allMessages.filter(msg => {
         return range.intersectsNode(msg.element);
       });
@@ -548,7 +548,7 @@ class ClaudeService {
    */
   generateTitle(messages) {
     if (!messages || !messages.length) return 'Claude Chat';
-    
+
     // 最初のユーザーメッセージからタイトルを生成
     const firstUserMessage = messages.find(m => m.role === 'user');
     if (firstUserMessage) {
@@ -559,10 +559,10 @@ class ClaudeService {
         .replace(/\n+/g, ' ') // 改行を空白に
         .trim()
         .substring(0, 50); // 最大50文字
-      
+
       return title + (firstUserMessage.content.length > 50 ? '...' : '');
     }
-    
+
     return `Claude Chat - ${new Date().toLocaleDateString('ja-JP')}`;
   }
 
@@ -576,13 +576,13 @@ class ClaudeService {
     if (titleElement && titleElement.textContent.trim()) {
       return titleElement.textContent.trim();
     }
-    
+
     // URLから取得を試みる
     const urlMatch = window.location.pathname.match(/\/chat\/([^\/]+)/);
     if (urlMatch) {
       return `Claude Chat ${urlMatch[1]}`;
     }
-    
+
     // メッセージから生成
     const messages = this.extractAllMessages();
     return this.generateTitle(messages);
@@ -602,8 +602,8 @@ class ClaudeService {
    * @returns {boolean} チャットページの場合true
    */
   isClaudeChat() {
-    return window.location.hostname.includes('claude.ai') && 
-           (window.location.pathname.includes('/chat') || 
+    return window.location.hostname.includes('claude.ai') &&
+           (window.location.pathname.includes('/chat') ||
             document.querySelector(this.selectors.messageContainer));
   }
 
@@ -615,21 +615,21 @@ class ClaudeService {
   waitForMessages(timeout = 5000) {
     return new Promise((resolve) => {
       const startTime = Date.now();
-      
+
       const checkMessages = () => {
         const messages = document.querySelectorAll(this.selectors.messageContainer);
         if (messages.length > 0) {
           resolve(true);
           return;
         }
-        
+
         if (Date.now() - startTime < timeout) {
           requestAnimationFrame(checkMessages);
         } else {
           resolve(false);
         }
       };
-      
+
       checkMessages();
     });
   }
@@ -642,11 +642,11 @@ class ClaudeService {
    */
   splitLongMessage(content, maxLength = 10000) {
     if (content.length <= maxLength) return [content];
-    
+
     const chunks = [];
     let currentChunk = '';
     const lines = content.split('\n');
-    
+
     for (const line of lines) {
       if (currentChunk.length + line.length + 1 > maxLength) {
         chunks.push(currentChunk.trim());
@@ -655,11 +655,11 @@ class ClaudeService {
         currentChunk += (currentChunk ? '\n' : '') + line;
       }
     }
-    
+
     if (currentChunk) {
       chunks.push(currentChunk.trim());
     }
-    
+
     return chunks;
   }
 

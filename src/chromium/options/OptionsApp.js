@@ -1,9 +1,9 @@
 /* global chrome */
 import React, { useState, useEffect } from "react";
-import { toast } from "../utils/toast.js";
-import { buildObsidianNewUri } from "../utils/obsidian.js";
-import { getSync } from "../utils/chrome.js";
-import { logger } from "../utils/logger.js";
+import { toast } from "../../utils/ui/toast.js";
+import { buildObsidianNewUri } from "../../utils/browser/obsidian.js";
+import { getSync } from "../../utils/browser/chrome.js";
+import { logger } from "../../utils/data/logger.js";
 
 const log = logger.create('Options');
 
@@ -25,8 +25,8 @@ const OptionsApp = () => {
   const [showPreview, setShowPreview] = useState(true);
   const [defaultMessageCount, setDefaultMessageCount] = useState(30);
   const [autoTagging, setAutoTagging] = useState(true);
-  
-  // Save method settings  
+
+  // Save method settings
   const [saveMethod, setSaveMethod] = useState("filesystem");
   const [downloadsFolder, setDownloadsFolder] = useState("ChatVault");
   const [selectedFolder, setSelectedFolder] = useState(null);
@@ -36,7 +36,7 @@ const OptionsApp = () => {
 
   useEffect(() => {
     log.info('Loading settings from storage...');
-    
+
     // Load the settings from browser storage
     getSync(
       [
@@ -122,20 +122,20 @@ const OptionsApp = () => {
         mode: 'readwrite',
         startIn: 'documents'
       });
-      
+
       log.info('Folder selected:', dirHandle.name);
       setSelectedFolder(dirHandle);
       setFolderPath(dirHandle.name);
-      
+
       // Store folder path in chrome storage
       chrome.storage.sync.set({ selectedFolderPath: dirHandle.name }, () => {
         log.debug('Folder path saved to storage');
       });
-      
+
       // Store the directory handle in IndexedDB for persistence
       const db = await openDB();
       await saveDirectoryHandle(db, dirHandle);
-      
+
     } catch (err) {
       if (err.name === 'AbortError') {
         log.info('Folder selection cancelled');
@@ -150,10 +150,10 @@ const OptionsApp = () => {
   const openDB = () => {
     return new Promise((resolve, reject) => {
       const request = indexedDB.open('ChatVaultDB', 1);
-      
+
       request.onerror = () => reject(request.error);
       request.onsuccess = () => resolve(request.result);
-      
+
       request.onupgradeneeded = (event) => {
         const db = event.target.result;
         if (!db.objectStoreNames.contains('handles')) {
@@ -178,7 +178,7 @@ const OptionsApp = () => {
       showChatSettings: showChatSettings,
       chatFolderPath: chatFolderPath
     });
-    
+
     // Check if the required fields are empty
     if (vault.trim() === "" || folder.trim() === "") {
       log.warn('Required fields empty');
@@ -257,7 +257,7 @@ const OptionsApp = () => {
       .replace("{content}", content)
       .replace("{date}", date)
       .replace("{service}", service);
-    
+
     let folderPath = chatFolderPath.trim()
       .replace("{title}", title)
       .replace("{service}", service)
@@ -268,7 +268,7 @@ const OptionsApp = () => {
     }
 
     const obsidianUri = buildObsidianNewUri({ vaultName: vault, filePath: folderPath, content: formattedContent });
-    
+
     if (vault.trim() !== "") {
       window.open(obsidianUri, "_blank");
     } else {
@@ -333,7 +333,7 @@ const OptionsApp = () => {
             />
           </div>
         </div>
-        
+
         {/* AI Chat Capture Settings */}
         <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
           <div className="flex items-center justify-between mb-4">
@@ -389,7 +389,7 @@ const OptionsApp = () => {
                   <option value="auto">自動選択</option>
                 </select>
               </div>
-              
+
               {saveMethod === 'filesystem' && (
                 <div className="mb-4 p-4 bg-gray-700 rounded">
                   <label className="block text-lg font-medium mb-1">
@@ -409,7 +409,7 @@ const OptionsApp = () => {
                   </p>
                 </div>
               )}
-              
+
               <div className="mb-4">
                 <label htmlFor="defaultMode" className="block text-lg font-medium mb-1">
                   デフォルトキャプチャモード
@@ -535,7 +535,7 @@ const OptionsApp = () => {
             </div>
           )}
         </div>
-        
+
         <div className="mt-8 flex justify-end space-x-4">
           <button
             onClick={handleSave}
@@ -544,7 +544,7 @@ const OptionsApp = () => {
             設定を保存
           </button>
         </div>
-        
+
         {statusMessage && (
           <div className={`mt-4 p-3 rounded-lg text-center ${
             statusMessage.includes('Error') ? 'bg-red-500' : 'bg-green-500'
@@ -552,7 +552,7 @@ const OptionsApp = () => {
             {statusMessage}
           </div>
         )}
-        
+
       </div>
     </div>
   );

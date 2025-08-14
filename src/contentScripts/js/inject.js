@@ -1,18 +1,18 @@
 // Content script for ChatVault Clip
 // This script is injected into ChatGPT and Claude pages to add save buttons
 
-import ClaudeService from '../services/claude.js';
-import GeminiService from '../services/gemini.js';
-import { toast } from '../utils/toast.js';
-import { logger } from '../utils/logger.js';
-import { ErrorCodes, toUserMessage } from '../utils/errors.js';
+import ClaudeService from '../../services/ai/claude.js';
+import GeminiService from '../../services/ai/gemini.js';
+import { toast } from '../../utils/ui/toast.js';
+import { logger } from '../../utils/data/logger.js';
+import { ErrorCodes, toUserMessage } from '../../utils/data/errors.js';
 
 const log = logger.create('Content');
 log.info('Content script loading...', window.location.href);
 
 (function() {
   'use strict';
-  
+
   // Prevent interference with ChatGPT's image loading
   const originalConsoleError = console.error;
   console.error = function(...args) {
@@ -23,7 +23,7 @@ log.info('Content script loading...', window.location.href);
     }
     return originalConsoleError.apply(console, args);
   };
-  
+
   // Add error event listener to prevent bubbling
   window.addEventListener('error', function(event) {
     if (event.target && event.target.src && event.target.src.includes('googleusercontent')) {
@@ -32,13 +32,13 @@ log.info('Content script loading...', window.location.href);
       return false;
     }
   }, true);
-  
+
   log.info('Content script executing...');
 
   // Configuration
   const BUTTON_SELECTOR = '.chatvault-save-btn';
   const DEBOUNCE_DELAY = 300; // Increased to reduce conflicts with ChatGPT
-  
+
   // Service detection
   const service = detectService();
   log.info('Detected service:', service);
@@ -46,7 +46,7 @@ log.info('Content script loading...', window.location.href);
     log.warn('No supported service detected, exiting');
     return;
   }
-  
+
   // Initialize Claude service if needed
   let claudeService = null;
   let geminiService = null;
@@ -57,11 +57,11 @@ log.info('Content script loading...', window.location.href);
     geminiService = new GeminiService();
     log.info('Gemini service initialized');
   }
-  
+
   // Rate limiting for DOM operations
   let lastOperationTime = 0;
   let operationQueue = [];
-  
+
   function throttleOperation(fn, delay = 100) {
     return function(...args) {
       const now = Date.now();
@@ -75,7 +75,7 @@ log.info('Content script loading...', window.location.href);
       } catch (error) {
         log.error('Throttled operation error:', error);
       }
-      
+
       // Process queue
       if (operationQueue.length > 0) {
         const nextOp = operationQueue.shift();
@@ -232,25 +232,25 @@ log.info('Content script loading...', window.location.href);
 
     const button = createSaveButton();
     let buttonAdded = false;
-    
+
     // Position button at the end of message content
     if (service === 'chatgpt') {
       // Find the content area in ChatGPT
       const contentSelectors = [
         '.markdown',
-        '[class*="markdown"]', 
+        '[class*="markdown"]',
         '.prose',
         '[class*="prose"]',
         '.whitespace-pre-wrap',
         '[class*="message-content"]'
       ];
-      
+
       let contentElement = null;
       for (const selector of contentSelectors) {
         contentElement = messageElement.querySelector(selector);
         if (contentElement) break;
       }
-      
+
       if (contentElement) {
         // Style button for inline placement at end of content
         button.style.display = 'inline-flex';
@@ -259,11 +259,11 @@ log.info('Content script loading...', window.location.href);
         button.style.verticalAlign = 'top';
         button.style.opacity = '0.7';
         button.style.transition = 'opacity 0.2s';
-        
+
         // Add hover effect
         button.addEventListener('mouseenter', () => button.style.opacity = '1');
         button.addEventListener('mouseleave', () => button.style.opacity = '0.7');
-        
+
         contentElement.appendChild(button);
         buttonAdded = true;
           log.debug('Button added to ChatGPT content end:', contentElement);
@@ -368,11 +368,11 @@ log.info('Content script loading...', window.location.href);
       log.info('SAVE BUTTON CLICKED!', messageElement);
       log.debug('Service:', service);
       log.debug('Current URL:', window.location.href);
-      
+
       // Add visual feedback using CSS classes
       button.classList.add('chatvault-saving');
       button.disabled = true;
-      
+
       try {
         // Ensure directory handle up-front if File System method is preferred
         await ensureDirectoryHandleIfNeeded();
@@ -456,12 +456,12 @@ log.info('Content script loading...', window.location.href);
       className: messageElement.className,
       textContent: messageElement.textContent?.substring(0, 100) + '...'
     });
-    
+
     const button = messageElement.querySelector(BUTTON_SELECTOR);
-    
+
     try {
       let messageData;
-      
+
       // Claude Artifact: if the element itself is an artifact container, extract via ClaudeService
       if (service === 'claude' && claudeService) {
         const artifactSelector = claudeService?.selectors?.artifactContainer;
@@ -547,42 +547,42 @@ log.info('Content script loading...', window.location.href);
 
       if (service === 'chatgpt') {
         log.debug('Extracting ChatGPT message...');
-        
+
         // Simplified extraction for debugging
         const messageText = messageElement.textContent || messageElement.innerText || 'No text found';
         log.debug('Message text (first 200 chars):', messageText.substring(0, 200));
-        
+
         // Try to determine if it's a user message
         const isUser = messageElement.getAttribute('data-message-author-role') === 'user';
         log.debug('Is user message:', isUser);
-        
+
         messageData = {
           messageContent: `### ${isUser ? 'User' : 'Assistant'}\n\n${messageText}`,
           messageType: 'single',
           conversationTitle: document.title.replace(' | ChatGPT', '').replace(' - ChatGPT', ''),
           service: service
         };
-        
+
         log.debug('Prepared message data:', messageData);
       } else if (service === 'claude' && claudeService) {
         // Claude用のメッセージ抽出（ClaudeServiceを使用）
         log.debug('Extracting Claude message using ClaudeService');
-        
+
         const extractedMessage = claudeService.extractSingleMessage(messageElement);
         if (!extractedMessage) {
           throw new Error('Failed to extract message');
         }
-        
+
         const conversationTitle = claudeService.getConversationTitle();
         const role = extractedMessage.role === 'user' ? 'User' : 'Assistant';
-        
+
         messageData = {
           messageContent: `### ${role}\n\n${extractedMessage.content}`,
           messageType: 'single',
           conversationTitle: conversationTitle,
           service: service
         };
-        
+
          log.debug('Message data:', messageData);
       } else if (service === 'gemini' && geminiService) {
         // Gemini 用のメッセージ抽出（GeminiServiceを使用）
@@ -604,14 +604,14 @@ log.info('Content script loading...', window.location.href);
         // Fallback to basic DOM extraction for other services
         const selectors = getSelectors();
         const contentElement = messageElement.querySelector(selectors.content);
-        
+
         if (!contentElement) {
           throw new Error('Could not find message content');
         }
 
         const isUser = messageElement.matches(selectors.userMessage);
         const speaker = isUser ? 'User' : 'Assistant';
-        
+
         messageData = {
           messageContent: `### ${speaker}\n\n${contentElement.innerHTML}`,
           messageType: 'single',
@@ -619,19 +619,19 @@ log.info('Content script loading...', window.location.href);
           service: service
         };
       }
-      
+
       // Send to background script
       log.debug('Sending message to background:', {
         action: 'saveSingleMessage',
         ...messageData
       });
-      
+
       chrome.runtime.sendMessage({
         action: 'saveSingleMessage',
         ...messageData
       }, (response) => {
         log.info('Save response:', response);
-        
+
         if (chrome.runtime.lastError) {
           log.error('Runtime error:', chrome.runtime.lastError);
           toast.show('保存に失敗しました: ' + chrome.runtime.lastError.message, 'error');
@@ -669,7 +669,7 @@ log.info('Content script loading...', window.location.href);
           }
         }
       });
-      
+
     } catch (error) {
       log.error('Error handling save click:', error);
       toast.show('エラー: ' + error.message, 'error');
@@ -686,7 +686,7 @@ log.info('Content script loading...', window.location.href);
 
     // Initial scan for existing messages
     let messages = document.querySelectorAll(selectors.container);
-    
+
     // Claude特別処理: アシスタントメッセージも追加で検索
     if (service === 'claude') {
       const assistantMessages = document.querySelectorAll('[data-is-streaming]');
@@ -694,28 +694,28 @@ log.info('Content script loading...', window.location.href);
       // 重複を除去
       messages = Array.from(new Set(allMessages));
     }
-    
+
     log.debug('Found', messages.length, 'messages with primary selectors');
-    
+
     // Debug: クラウドのDOM構造を詳しく調査
     if (service === 'claude' && messages.length === 0) {
       log.debug('No messages found, investigating Claude DOM...');
-      
+
       // 会話エリアを探す
       const conversationContainers = document.querySelectorAll('main, [role="main"], div[class*="conversation"], div[class*="chat"]');
       log.debug('Potential conversation containers:', conversationContainers.length);
-      
+
       // テキストを含む要素を探す
       const allDivs = document.querySelectorAll('div');
       const messagelikeDivs = Array.from(allDivs).filter(div => {
         const text = div.textContent?.trim() || '';
-        return text.length > 50 && text.length < 5000 && 
-               !div.querySelector('nav') && 
+        return text.length > 50 && text.length < 5000 &&
+               !div.querySelector('nav') &&
                !div.querySelector('header') &&
                !div.matches('button, a, svg');
       });
       log.debug('Message-like divs found:', messagelikeDivs.length);
-      
+
       // 最初の数個を詳しく見る
       messagelikeDivs.slice(0, 3).forEach((div, index) => {
         log.debug(`Potential message ${index}:`, {
@@ -725,7 +725,7 @@ log.info('Content script loading...', window.location.href);
         });
       });
     }
-    
+
     // If no messages found, try broader selectors but only in conversation area
     if (messages.length === 0) {
       log.debug('No messages found, trying broader selectors...');
@@ -745,7 +745,7 @@ log.info('Content script loading...', window.location.href);
       }
       log.debug('Found', messages.length, 'messages with broader selectors');
     }
-    
+
     // If still no messages, wait a bit and try again
     if (messages.length === 0) {
       log.debug('Still no messages found, will retry in 2 seconds...');
@@ -762,7 +762,7 @@ log.info('Content script loading...', window.location.href);
               messageParents.push(parent);
             }
           });
-          
+
           // アシスタントメッセージも探す
           const assistantMessages = document.querySelectorAll('div[data-is-streaming], div.font-claude-message');
           assistantMessages.forEach(msg => {
@@ -771,20 +771,20 @@ log.info('Content script loading...', window.location.href);
               messageParents.push(parent);
             }
           });
-          
+
           retryMessages = messageParents;
           log.debug('Claude fallback: found', retryMessages.length, 'message parents');
         } else {
           retryMessages = document.querySelectorAll('div, article, section');
           log.debug('General fallback: found', retryMessages.length, 'potential elements');
         }
-        
+
         // Add buttons to any element that looks like it could be a message
         Array.from(retryMessages).filter(el => {
           const text = el.textContent?.trim();
           // More sophisticated filtering for Claude
           if (service === 'claude') {
-            return text && text.length > 20 && text.length < 5000 && 
+            return text && text.length > 20 && text.length < 5000 &&
                    !el.querySelector('input') && !el.querySelector('button') &&
                    !el.matches('nav, header, footer, aside');
           }
@@ -792,7 +792,7 @@ log.info('Content script loading...', window.location.href);
         }).slice(0, 15).forEach(addSaveButton); // Limit to first 15 to avoid spam
       }, 2000);
     }
-    
+
     messages.forEach(addSaveButton);
 
     // Initial scan for artifact containers on Claude
@@ -925,7 +925,7 @@ log.info('Content script loading...', window.location.href);
         // Claude専用の抽出ロジック
         let messages = [];
         let title = '';
-        
+
         switch (mode) {
           case 'all':
             messages = claudeService.extractAllMessages();
@@ -939,15 +939,15 @@ log.info('Content script loading...', window.location.href);
           default:
             throw new Error('Invalid capture mode: ' + mode);
         }
-        
+
         title = claudeService.getConversationTitle();
-        
+
         // メッセージをMarkdown形式に変換
         const formattedMessages = messages.map(msg => ({
           speaker: msg.role === 'user' ? 'User' : 'Assistant',
           content: msg.content
         }));
-        
+
         return {
           success: true,
           messages: formattedMessages,
@@ -965,12 +965,12 @@ log.info('Content script loading...', window.location.href);
               content: contentEl ? contentEl.innerHTML : ''
             };
           });
-        
+
         let messages = allMessages;
         if (mode === 'recent' && count) {
           messages = allMessages.slice(-count);
         }
-        
+
         return {
           success: true,
           messages: messages,
@@ -1004,10 +1004,10 @@ log.info('Content script loading...', window.location.href);
         document.body.appendChild(textArea);
         textArea.focus();
         textArea.select();
-        
+
         const successful = document.execCommand('copy');
         document.body.removeChild(textArea);
-        
+
         if (successful) {
           console.log('[ChatVault] Content copied to clipboard using execCommand');
           return { success: true, method: 'execCommand' };
@@ -1025,7 +1025,7 @@ log.info('Content script loading...', window.location.href);
   async function handleFileSystemSave(content, relativePath) {
     try {
       console.log('[ChatVault] Attempting File System Access API save...');
-      
+
       // Load the directory handle from IndexedDB (page origin)
       let dirHandle = await loadDirectoryHandle();
       if (!dirHandle) {
@@ -1054,7 +1054,7 @@ log.info('Content script loading...', window.location.href);
       // Parse the path and create directories as needed
       const pathSegments = relativePath.split('/').filter(segment => segment);
       const fileName = pathSegments.pop();
-      
+
       let currentDir = dirHandle;
       for (const segment of pathSegments) {
         currentDir = await currentDir.getDirectoryHandle(segment, { create: true });
@@ -1110,7 +1110,7 @@ log.info('Content script loading...', window.location.href);
       const tx = db.transaction(['handles'], 'readonly');
       const store = tx.objectStore('handles');
       const request = store.get('vaultDirectory');
-      
+
       return new Promise((resolve, reject) => {
         request.onsuccess = () => {
           db.close();
@@ -1148,10 +1148,10 @@ log.info('Content script loading...', window.location.href);
   function openDB() {
     return new Promise((resolve, reject) => {
       const request = indexedDB.open('ChatVaultDB', 1);
-      
+
       request.onerror = () => reject(request.error);
       request.onsuccess = () => resolve(request.result);
-      
+
       request.onupgradeneeded = (event) => {
         const db = event.target.result;
         if (!db.objectStoreNames.contains('handles')) {
@@ -1164,11 +1164,11 @@ log.info('Content script loading...', window.location.href);
   // Selection highlighting functionality
   let selectionOverlay = null;
   let isSelectionMode = false;
-  
+
   function enableSelectionMode() {
     isSelectionMode = true;
     document.body.style.cursor = 'crosshair';
-    
+
     // Add visual indicator
     if (!selectionOverlay) {
       selectionOverlay = document.createElement('div');
@@ -1189,38 +1189,38 @@ log.info('Content script loading...', window.location.href);
       document.body.appendChild(selectionOverlay);
     }
   }
-  
+
   function disableSelectionMode() {
     isSelectionMode = false;
     document.body.style.cursor = '';
-    
+
     if (selectionOverlay) {
       selectionOverlay.remove();
       selectionOverlay = null;
     }
   }
-  
+
   function getSelectedContent() {
     const selection = window.getSelection();
     if (selection.rangeCount === 0) return null;
-    
+
     const range = selection.getRangeAt(0);
     const container = document.createElement('div');
     container.appendChild(range.cloneContents());
-    
+
     // Try to preserve formatting
     let content = container.innerHTML;
     if (!content.trim()) {
       content = selection.toString();
     }
-    
+
     return {
       text: selection.toString().trim(),
       html: content,
       range: {
-        startContainer: range.startContainer.nodeType === Node.TEXT_NODE ? 
+        startContainer: range.startContainer.nodeType === Node.TEXT_NODE ?
                        range.startContainer.parentElement?.tagName : range.startContainer.tagName,
-        endContainer: range.endContainer.nodeType === Node.TEXT_NODE ? 
+        endContainer: range.endContainer.nodeType === Node.TEXT_NODE ?
                      range.endContainer.parentElement?.tagName : range.endContainer.tagName
       }
     };
@@ -1284,7 +1284,7 @@ log.info('Content script loading...', window.location.href);
         if (selectedMessages.length > 0) {
           const markdown = claudeService.messagesToMarkdown(selectedMessages);
           const title = claudeService.generateTitle(selectedMessages);
-          
+
           chrome.runtime.sendMessage({
             action: 'saveMultipleMessages',
             messages: selectedMessages.map(msg => ({
@@ -1390,7 +1390,7 @@ log.info('Content script loading...', window.location.href);
               selectionInfo: selectedContent.range
             }
           });
-          
+
           disableSelectionMode();
           sendResponse({ success: true, content: selectedContent.text });
         } else {
@@ -1504,7 +1504,7 @@ log.info('Content script loading...', window.location.href);
             return msg;
           }).flat();
         }
-        
+
         // Send to background script for saving
         chrome.runtime.sendMessage({
           action: 'saveMultipleMessages',
@@ -1546,7 +1546,7 @@ log.info('Content script loading...', window.location.href);
   // Initialize with longer delay for dynamic content
   function initializeWithDelay() {
     observeMessages();
-    
+
     // Retry periodically until messages are found
     let retryCount = 0;
     const maxRetries = 20; // Increased from 10 to 20
@@ -1554,9 +1554,9 @@ log.info('Content script loading...', window.location.href);
       const selectors = getSelectors();
       const messages = document.querySelectorAll(selectors.container);
       const existingButtons = document.querySelectorAll('.chatvault-save-btn');
-      
+
       console.log(`[ChatVault] Retry ${retryCount + 1}: Found ${messages.length} messages, ${existingButtons.length} buttons`);
-      
+
       if (messages.length > 0) {
         // Add buttons to messages that don't have them yet
         messages.forEach(message => {
@@ -1565,14 +1565,14 @@ log.info('Content script loading...', window.location.href);
             addSaveButton(message);
           }
         });
-        
+
         // If all messages have buttons, we're done
         if (existingButtons.length >= messages.length) {
           clearInterval(retryInterval);
           log.debug('All messages have buttons, stopping retry');
         }
       }
-      
+
       retryCount++;
       if (retryCount >= maxRetries) {
         clearInterval(retryInterval);

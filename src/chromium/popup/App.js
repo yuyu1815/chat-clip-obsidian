@@ -1,10 +1,10 @@
 /* global chrome */
 import "./App.css";
 import React, { useState, useEffect, useRef, Suspense } from "react";
-import { sanitizeTitle } from "../utils/validation.js";
-import { queryActiveTab } from "../utils/chrome.js";
-import { toast } from "../utils/toast.js";
-import { logger } from "../utils/logger.js";
+import { sanitizeTitle } from "../../utils/data/validation.js";
+import { queryActiveTab } from "../../utils/browser/chrome.js";
+import { toast } from "../../utils/ui/toast.js";
+import { logger } from "../../utils/data/logger.js";
 import ChatModeSelector from "./components/ChatModeSelector";
 
 // Lazy load MarkdownPreview to reduce initial bundle size
@@ -78,12 +78,12 @@ function App() {
         const tab = tabs[0];
         setPageInfo({ title: tab.title, url: tab.url });
         setTitle(sanitizeTitle(tab.title));
-        
+
         // Check if we're on a supported chat page
         const chatPages = ['chat.openai.com', 'claude.ai'];
         const isChat = chatPages.some(domain => tab.url.includes(domain));
         setIsOnChatPage(isChat);
-        
+
         // Auto-switch to chat mode if on chat page
         if (isChat && mode === 'webpage') {
           setMode('single');
@@ -148,11 +148,11 @@ function App() {
   // Generate chat preview content
   useEffect(() => {
     if (isOnChatPage) {
-      const service = pageInfo.url.includes('chatgpt.com') ? 'ChatGPT' : 
+      const service = pageInfo.url.includes('chatgpt.com') ? 'ChatGPT' :
                       pageInfo.url.includes('claude.ai') ? 'Claude' : 'Unknown';
       const date = new Date().toISOString().split('T')[0];
       const chatTitle = title || `${service} Chat - ${date}`;
-      
+
       let preview = `---
 title: ${chatTitle}
 date: ${date}
@@ -166,7 +166,7 @@ url: ${pageInfo.url}
       preview += `---
 
 `;
-      
+
       if (mode === 'single') {
         preview += '### Message Content\n\nCurrent message will be saved here.';
       } else if (mode === 'selection') {
@@ -176,7 +176,7 @@ url: ${pageInfo.url}
       } else if (mode === 'full') {
         preview += '### Full Conversation\n\nFull conversation will be saved here.';
       }
-      
+
       setChatPreviewContent(preview);
     }
   }, [mode, isOnChatPage, pageInfo.url, title, messageCount, autoTagging]);
@@ -188,7 +188,7 @@ url: ${pageInfo.url}
       return () => clearTimeout(timer);
     }
   }, [notification]);
-  
+
   // Apply dark mode theme
   useEffect(() => {
     const container = containerRef.current;
@@ -197,14 +197,14 @@ url: ${pageInfo.url}
       container.classList.add('theme-transition');
     }
   }, [darkMode]);
-  
+
   // Toggle dark mode
   const toggleDarkMode = () => {
     const newDarkMode = !darkMode;
     setDarkMode(newDarkMode);
     chrome.storage.local.set({ darkMode: newDarkMode });
   };
-  
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyboard = (e) => {
@@ -231,7 +231,7 @@ url: ${pageInfo.url}
         window.close();
       }
     };
-    
+
     document.addEventListener('keydown', handleKeyboard);
     return () => document.removeEventListener('keydown', handleKeyboard);
   }, [saveButtonDisabled, showPreview, darkMode]);
@@ -256,7 +256,7 @@ url: ${pageInfo.url}
                       mode === 'selection' ? 'saveSelected' :
                       mode === 'recent' ? 'saveLastN' :
                       mode === 'full' ? 'saveAll' : null;
-        
+
         if (action) {
           chrome.tabs.sendMessage(tabs[0].id, {
             action: action,
@@ -267,7 +267,7 @@ url: ${pageInfo.url}
               toast.show('保存に失敗しました: ' + chrome.runtime.lastError.message, 'error');
               return;
             }
-            
+
             if (response && response.success) {
               // Add to save history
               const historyItem = {
@@ -276,11 +276,11 @@ url: ${pageInfo.url}
                 service: pageInfo.url.includes('chatgpt.com') ? 'ChatGPT' : 'Claude',
                 title: title || `Chat - ${new Date().toLocaleDateString()}`
               };
-              
+
               const newHistory = [historyItem, ...saveHistory.slice(0, 4)];
               setSaveHistory(newHistory);
               chrome.storage.local.set({ saveHistory: newHistory });
-              
+
               // Customize message based on method used
               let message = 'Chat saved successfully!';
               if (response.method === 'clipboard') {
@@ -290,10 +290,10 @@ url: ${pageInfo.url}
                   alert(response.message);
                 }
               }
-              
+
               setNotification({ type: 'success', message: message });
               toast.show(message, 'success');
-              
+
               setTimeout(() => window.close(), response.method === 'clipboard' ? 2500 : 1500);
             } else {
               const msg = response?.userMessage || (response?.error ? '保存に失敗しました: ' + response.error : 'Failed to save chat');
@@ -365,7 +365,7 @@ url: ${pageInfo.url}
 
       {isOnChatPage && (
         <div className="p-4">
-          <ChatModeSelector 
+          <ChatModeSelector
             onModeChange={setMode}
             onCountChange={setMessageCount}
             defaultMode={mode}
@@ -373,7 +373,7 @@ url: ${pageInfo.url}
           />
         </div>
       )}
-      
+
       <div className="p-4">
           <div className="text-center">
             <div className="text-sm text-zinc-600 mb-2">
@@ -388,7 +388,7 @@ url: ${pageInfo.url}
               </div>
             )}
           </div>
-          
+
           {saveHistory.length > 0 && (
             <div className={`mt-4 pt-3 border-t ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
               <div className={`text-xs mb-2 font-medium ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
@@ -418,7 +418,7 @@ url: ${pageInfo.url}
             </div>
           )}
         </div>
-      
+
       {showPreview && isOnChatPage && (
         <div className="p-4 pt-0">
           <Suspense fallback={
@@ -428,15 +428,15 @@ url: ${pageInfo.url}
               <div className="h-4 bg-gray-700 rounded w-5/6"></div>
             </div>
           }>
-            <MarkdownPreview 
-              content={chatPreviewContent} 
+            <MarkdownPreview
+              content={chatPreviewContent}
               isLoading={loading}
               maxHeight="300px"
             />
           </Suspense>
         </div>
       )}
-      
+
       {notification && (
         <div className={`notification fixed top-2 right-2 px-4 py-2 rounded-md text-white z-50 ${
           notification.type === 'success' ? 'bg-green-500' : 'bg-red-500'
@@ -444,7 +444,7 @@ url: ${pageInfo.url}
           {notification.message}
         </div>
       )}
-      
+
       <div className={`flex justify-between w-full px-4 py-3 items-center border-t ${
         darkMode ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'
       }`}>
