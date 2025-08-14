@@ -1,6 +1,8 @@
 /* global chrome */
 import "./App.css";
 import React, { useState, useEffect, useRef, Suspense } from "react";
+import { sanitizeTitle } from "../utils/validation.js";
+import { queryActiveTab } from "../utils/chrome.js";
 import { toast } from "../utils/toast.js";
 import { logger } from "../utils/logger.js";
 import ChatModeSelector from "./components/ChatModeSelector";
@@ -72,11 +74,7 @@ function App() {
     const getPageInfo = async () => {
       setLoading(true);
       try {
-        const tabs = await new Promise((resolve) => {
-          chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-            resolve(tabs);
-          });
-        });
+        const tabs = await queryActiveTab();
         const tab = tabs[0];
         setPageInfo({ title: tab.title, url: tab.url });
         setTitle(sanitizeTitle(tab.title));
@@ -104,14 +102,7 @@ function App() {
     const loadSettings = async () => {
       setLoading(true);
       try {
-        const result = await new Promise((resolve) => {
-          chrome.storage.sync.get(
-            ["obsidianVault", "chatFolderPath", "defaultMode", "showPreview", "defaultMessageCount"],
-            (result) => {
-              resolve(result);
-            }
-          );
-        });
+        const result = await getSync(["obsidianVault", "chatFolderPath", "defaultMode", "showPreview", "defaultMessageCount", "autoTagging"]);
         if (result.obsidianVault) {
           setObsidianVault(result.obsidianVault);
         }
@@ -319,10 +310,7 @@ url: ${pageInfo.url}
   };
 
 
-  const sanitizeTitle = (title) => {
-    const invalidCharacterPattern = /[\\:*?"<>|/]/g;
-    return title.replace(invalidCharacterPattern, "-");
-  };
+  // moved to utils/validation.js
 
   const handleTitleChange = (e) => {
     const sanitizedValue = sanitizeTitle(e.target.value);

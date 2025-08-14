@@ -1,6 +1,11 @@
 /* global chrome */
 import { logger } from '../utils/logger.js';
 import { ErrorCodes, toUserMessage } from '../utils/errors.js';
+import { notifyBasic } from '../utils/notifications.js';
+import { toBase64Utf8 } from '../utils/encoding.js';
+import { buildObsidianNewUri, buildAdvancedUriText, buildAdvancedUriClipboard } from '../utils/obsidian.js';
+import { sanitizeForFilename } from '../utils/validation.js';
+import { openUrlWithAutoClose, getSync } from '../utils/chrome.js';
 
 const log = logger.create('Background');
 
@@ -20,15 +25,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       break;
     
     case 'getSettings':
-      chrome.storage.sync.get([
-        'obsidianVault',
-        'folderPath',
-        'noteContentFormat',
-        'showSaveButton',
-        'buttonPosition'
-      ], (settings) => {
+      (async () => {
+        const settings = await getSync([
+          'obsidianVault',
+          'folderPath',
+          'noteContentFormat',
+          'showSaveButton',
+          'buttonPosition'
+        ]);
         sendResponse(settings);
-      });
+      })();
       return true; // Keep channel open for async response
     
     case 'saveSettings':
@@ -79,7 +85,7 @@ async function saveViaDownloadAPI(content, filename, folderPath) {
     
     // Service Workers don't support URL.createObjectURL() with Blobs
     // Use Data URL instead for Manifest V3 compatibility
-    const base64Content = btoa(unescape(encodeURIComponent(content)));
+    const base64Content = toBase64Utf8(content);
     const dataUrl = `data:text/markdown;charset=utf-8;base64,${base64Content}`;
     
     console.log('[ChatVault Background] 🔄 Converted to Data URL, length:', dataUrl.length);
@@ -146,14 +152,12 @@ async function handleSaveMessage(request, sender, sendResponse) {
   
   try {
     // Get settings
-    const settings = await new Promise((resolve) => {
-      chrome.storage.sync.get([
-        'obsidianVault',
-        'folderPath',
-        'noteContentFormat',
-        'chatFolderPath'
-      ], resolve);
-    });
+    const settings = await getSync([
+      'obsidianVault',
+      'folderPath',
+      'noteContentFormat',
+      'chatFolderPath'
+    ]);
     
     log.debug('Settings:', settings);
 
@@ -174,10 +178,7 @@ async function handleSaveMessage(request, sender, sendResponse) {
     const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
     const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '-'); // HH-MM-SS
     // Sanitize title - allow Japanese characters
-    const sanitizedTitle = (conversationTitle || 'untitled')
-      .replace(/[\/\\:*?"<>|]/g, '') // Remove file system unsafe characters only
-      .replace(/\s+/g, '_')
-      .trim() || 'untitled';
+    const sanitizedTitle = sanitizeForFilename(conversationTitle, 'untitled');
     const typePrefix = normalizedType === 'artifact' ? 'artifact_' : (normalizedType === 'selection' ? 'selection_' : '');
     const filename = `${dateStr}_${timeStr}_${typePrefix}${service}_${sanitizedTitle}.md`;
     
@@ -241,10 +242,10 @@ type: ${normalizedType}
     
     const encodedContent = encodeURIComponent(processedContent);
     
-    const obsidianUri = `obsidian://new?vault=${encodedVault}&file=${encodedFile}&content=${encodedContent}`;
+    const obsidianUri = buildObsidianNewUri({ vaultName, filePath: fullFilePath, content: processedContent });
     
     // Also create a test URI without content to see if that works
-    const testUriWithoutContent = `obsidian://new?vault=${encodedVault}&file=${encodedFile}&content=${encodeURIComponent('Test content')}`;
+    const testUriWithoutContent = buildObsidianNewUri({ vaultName, filePath: fullFilePath, content: 'Test content' });
     
     log.debug('URI length:', obsidianUri.length);
     log.debug('Folder:', fullFolderPath, 'Filename:', filename);
@@ -270,10 +271,10 @@ type: ${normalizedType}
     
     // Try Advanced URI plugin format first (if user has it installed)
     // Try both methods: with base64 and without
-    const base64ContentForAdvanced = btoa(unescape(encodeURIComponent(processedContent)));
+    const base64ContentForAdvanced = toBase64Utf8(processedContent);
     
     // Method 1: Use 'text' parameter (some versions prefer this)
-    const advancedUriText = `obsidian://advanced-uri?vault=${encodedVault}&filepath=${encodeURIComponent(fullFilePath)}&text=${encodedContent}&mode=new`;
+    const advancedUriText = buildAdvancedUriText({ vaultName, filePath: fullFilePath, text: processedContent, mode: 'new' });
     
     // Method 2: Use 'data' parameter with base64
     const advancedUriData = `obsidian://advanced-uri?vault=${encodedVault}&filepath=${encodeURIComponent(fullFilePath)}&data=${base64ContentForAdvanced}&mode=new`;
@@ -288,14 +289,11 @@ type: ${normalizedType}
     const URI_LENGTH_LIMIT = 8000; // Standard URI limit
     
     // Get user preferences for save method
-    const savePreferences = await new Promise((resolve) => {
-      chrome.storage.sync.get(['saveMethod', 'downloadsFolder'], (prefs) => {
-        resolve({
-          method: prefs.saveMethod || 'filesystem', // filesystem (default), advanced-uri, auto, downloads, clipboard
-          downloadsFolder: prefs.downloadsFolder || 'ChatVault'
-        });
-      });
-    });
+    const prefs = await getSync(['saveMethod', 'downloadsFolder']);
+    const savePreferences = {
+      method: prefs.saveMethod || 'filesystem', // filesystem (default), advanced-uri, auto, downloads, clipboard
+      downloadsFolder: prefs.downloadsFolder || 'ChatVault'
+    };
     
     log.debug('Save preferences:', savePreferences);
     
@@ -329,13 +327,7 @@ type: ${normalizedType}
         console.log('[ChatVault Background] ✅ File System Access API save successful');
         
         // Show success notification
-        chrome.notifications.create({
-          type: 'basic',
-          iconUrl: 'logo48.png',
-          title: 'ChatVault Clip',
-          message: `Saved to Obsidian vault: ${filename}`,
-          priority: 1
-        });
+        notifyBasic({ message: `Saved to Obsidian vault: ${filename}` });
         
         sendResponse({
           success: true,
@@ -375,33 +367,17 @@ type: ${normalizedType}
       });
       
       // Create Advanced URI with clipboard=true
-      const advancedUriClipboard = `obsidian://advanced-uri?vault=${encodedVault}&filepath=${encodeURIComponent(fullFilePath)}&clipboard=true&mode=new`;
+      const advancedUriClipboard = buildAdvancedUriClipboard({ vaultName, filePath: fullFilePath, mode: 'new' });
       console.log('[ChatVault Background] 🔗 Advanced URI (clipboard):', advancedUriClipboard);
       
-      // Open the URI
-      chrome.tabs.create({ url: advancedUriClipboard }, (tab) => {
-        if (chrome.runtime.lastError) {
-          throw chrome.runtime.lastError;
-        }
-        
-        // Close tab after delay
-        if (tab?.id) {
-          setTimeout(() => {
-            chrome.tabs.remove(tab.id, () => {
-              if (chrome.runtime.lastError) {
-                console.error('[ChatVault Background] Tab close error:', chrome.runtime.lastError.message);
-              }
-            });
-          }, 3000);
-        }
-        
+      openUrlWithAutoClose(advancedUriClipboard, 3000).then(() => {
         sendResponse({
           success: true,
           method: 'advanced-uri-clipboard',
           message: `Saved to Obsidian via Advanced URI plugin (clipboard method)`,
           filename: filename
         });
-      });
+      }).catch((err) => { throw err; });
     };
     
     // Try Advanced URI first (for direct Obsidian saving)
@@ -420,30 +396,15 @@ type: ${normalizedType}
         
         try {
           await new Promise((resolve, reject) => {
-            chrome.tabs.create({ url: advancedUri }, (tab) => {
-              if (chrome.runtime.lastError) {
-                reject(chrome.runtime.lastError);
-              } else {
-                // Close tab after delay
-                if (tab?.id) {
-                  setTimeout(() => {
-                    chrome.tabs.remove(tab.id, () => {
-                      if (chrome.runtime.lastError) {
-                        console.error('[ChatVault Background] Tab close error:', chrome.runtime.lastError.message);
-                      }
-                    });
-                  }, 3000);
-                }
-                
-                sendResponse({
-                  success: true,
-                  method: 'advanced-uri',
-                  message: `Saved to Obsidian via Advanced URI plugin (${uriMethod} method)`,
-                  filename: filename
-                });
-                resolve();
-              }
-            });
+            openUrlWithAutoClose(advancedUri, 3000).then(() => {
+              sendResponse({
+                success: true,
+                method: 'advanced-uri',
+                message: `Saved to Obsidian via Advanced URI plugin (${uriMethod} method)`,
+                filename: filename
+              });
+              resolve();
+            }).catch((e) => reject(e));
           });
           return;
         } catch (error) {
@@ -466,13 +427,7 @@ type: ${normalizedType}
           console.log('[ChatVault Background] ✅ Successfully saved via Downloads API');
           
           // Show notification for Downloads API save
-          chrome.notifications.create({
-            type: 'basic',
-            iconUrl: 'logo48.png',
-            title: 'ChatVault Clip',
-            message: `Saved to Downloads: ${filename}`,
-            priority: 1
-          });
+          notifyBasic({ message: `Saved to Downloads: ${filename}` });
           
           sendResponse({
             success: true,
@@ -498,34 +453,21 @@ type: ${normalizedType}
       console.log('[ChatVault Background] 🚀 Trying Advanced URI method first...');
       
       // Try Advanced URI
-      chrome.tabs.create({ url: advancedUri }, (tab) => {
-        if (chrome.runtime.lastError) {
-          console.error('[ChatVault Background] ❌ Advanced URI failed:', chrome.runtime.lastError);
+      openUrlWithAutoClose(advancedUri, 3000)
+        .then(() => {
+          console.log('[ChatVault Background] ✅ Advanced URI tab created');
+          sendResponse({ 
+            success: true, 
+            method: 'advanced-uri',
+            message: `Saved to Obsidian via Advanced URI plugin (${uriMethod} method)`,
+            filename: filename
+          });
+        })
+        .catch((err) => {
+          console.error('[ChatVault Background] ❌ Advanced URI failed:', err);
           // Fall back to clipboard method
           fallbackToClipboard();
-          return;
-        }
-        
-        console.log('[ChatVault Background] ✅ Advanced URI tab created');
-        
-        // Close the tab after a delay
-        if (tab?.id) {
-          setTimeout(() => {
-            chrome.tabs.remove(tab.id, () => {
-              if (chrome.runtime.lastError) {
-                console.error('[ChatVault Background] Tab close error:', chrome.runtime.lastError.message);
-              }
-            });
-          }, 3000);
-        }
-        
-        sendResponse({ 
-          success: true, 
-          method: 'advanced-uri',
-          message: `Saved to Obsidian via Advanced URI plugin (${uriMethod} method)`,
-          filename: filename
         });
-      });
       return;
     }
     
@@ -567,40 +509,27 @@ type: ${normalizedType}
           console.log('[ChatVault Background] 📝 Opening Obsidian with simple URI:', simpleUri);
           
           // Open Obsidian with the simple URI (no content)
-          chrome.tabs.create({ url: simpleUri }, (tab) => {
-            if (chrome.runtime.lastError) {
-              console.error('[ChatVault Background] ❌ Failed to open Obsidian:', chrome.runtime.lastError);
+          openUrlWithAutoClose(simpleUri, 3000)
+            .then(() => {
+              console.log('[ChatVault Background] ✅ Obsidian opened with empty file, content in clipboard');
+              console.log('[ChatVault Background] 📋 User needs to paste content manually with Ctrl/Cmd+V');
+              sendResponse({ 
+                success: true, 
+                method: 'clipboard',
+                message: `Content copied to clipboard!\n\nObsidian will open with an empty file. Please paste the content with Ctrl/Cmd+V\n\nFile: ${filename}\n\nNote: This is due to a limitation in Obsidian's URI scheme. For automatic content insertion, consider installing the Advanced URI plugin.`,
+                filename: filename,
+                tip: 'Install Advanced URI plugin for better integration'
+              });
+            })
+            .catch((err) => {
+              console.error('[ChatVault Background] ❌ Failed to open Obsidian:', err);
               sendResponse({ 
                 success: false, 
-                error: 'Failed to open Obsidian: ' + chrome.runtime.lastError.message,
+                error: 'Failed to open Obsidian: ' + (err.message || err),
                 errorCode: 'SAVE_FAILED',
                 userMessage: '保存に失敗しました。コンソールのログを確認してください。'
               });
-              return;
-            }
-            
-            console.log('[ChatVault Background] ✅ Obsidian opened with empty file, content in clipboard');
-            console.log('[ChatVault Background] 📋 User needs to paste content manually with Ctrl/Cmd+V');
-            
-            // Close the tab after a delay
-            if (tab?.id) {
-              setTimeout(() => {
-                chrome.tabs.remove(tab.id, () => {
-                  if (chrome.runtime.lastError) {
-                    console.error('[ChatVault Background] Tab close error:', chrome.runtime.lastError.message);
-                  }
-                });
-              }, 3000);
-            }
-            
-            sendResponse({ 
-              success: true, 
-              method: 'clipboard',
-              message: `Content copied to clipboard!\n\nObsidian will open with an empty file. Please paste the content with Ctrl/Cmd+V\n\nFile: ${filename}\n\nNote: This is due to a limitation in Obsidian's URI scheme. For automatic content insertion, consider installing the Advanced URI plugin.`,
-              filename: filename,
-              tip: 'Install Advanced URI plugin for better integration'
             });
-          });
         }
       });
     };
@@ -622,7 +551,7 @@ type: ${normalizedType}
       console.log('[ChatVault Background] 📝 Full URI being used:', obsidianUri);
       
       // For debugging: Create a simpler version with base64 encoded content
-      const base64Content = btoa(unescape(encodeURIComponent(processedContent)));
+      const base64Content = toBase64Utf8(processedContent);
       const base64Uri = `obsidian://new?vault=${encodedVault}&file=${encodedFile}&content=base64:${base64Content}`;
       
       console.log('[ChatVault Background] 🔍 Debugging different URI formats:');
@@ -631,7 +560,7 @@ type: ${normalizedType}
       
       // Test with a minimal content first
       const minimalContent = 'Test\nMultiple\nLines\nContent';
-      const minimalUri = `obsidian://new?vault=${encodedVault}&file=${encodedFile}&content=${encodeURIComponent(minimalContent)}`;
+      const minimalUri = buildObsidianNewUri({ vaultName, filePath: fullFilePath, content: minimalContent });
       console.log('[ChatVault Background] 3️⃣ Minimal test URI:', minimalUri);
       
       // Copy debug info to clipboard for manual testing
@@ -659,66 +588,23 @@ type: ${normalizedType}
         uriLength: obsidianUri.length
       });
       
-      chrome.tabs.create({ url: obsidianUri }, (tab) => {
-        if (chrome.runtime.lastError) {
-          console.error('[ChatVault Background] ❌ Tab creation error:', chrome.runtime.lastError);
+      openUrlWithAutoClose(obsidianUri, 5000)
+        .then((tab) => {
+          console.log('[ChatVault Background] ✅ Tab created successfully:', tab);
+          console.log('[ChatVault Background] 📊 Tab details:', {
+            id: tab?.id,
+            url: tab?.url,
+            status: tab?.status,
+            pendingUrl: tab?.pendingUrl
+          });
+        })
+        .catch((err) => {
+          console.error('[ChatVault Background] ❌ Tab creation error:', err);
           sendResponse({ 
             success: false, 
-            error: 'Failed to create tab: ' + chrome.runtime.lastError.message 
+            error: 'Failed to create tab: ' + (err.message || err) 
           });
-          return;
-        }
-        
-        console.log('[ChatVault Background] ✅ Tab created successfully:', tab);
-        console.log('[ChatVault Background] 📊 Tab details:', {
-          id: tab?.id,
-          url: tab?.url,
-          status: tab?.status,
-          pendingUrl: tab?.pendingUrl
         });
-        
-        // Monitor tab updates to see if Obsidian URI is being processed
-        if (tab?.id) {
-          const tabId = tab.id;
-          
-          // Listen for tab updates
-          const updateListener = (updatedTabId, changeInfo, updatedTab) => {
-            if (updatedTabId === tabId) {
-              console.log('[ChatVault Background] 📍 Tab update:', changeInfo);
-              if (changeInfo.url) {
-                console.log('[ChatVault Background] 🔗 Tab URL changed to:', changeInfo.url);
-              }
-            }
-          };
-          
-          chrome.tabs.onUpdated.addListener(updateListener);
-          
-          // Close after delay to ensure Obsidian processes the URI
-          // Wait longer and check if the tab navigated to about:blank (Obsidian handled it)
-          setTimeout(() => {
-            chrome.tabs.get(tabId, (tab) => {
-              if (chrome.runtime.lastError) {
-                // Tab already closed by Obsidian, which is good
-                console.log('[ChatVault Background] ✅ Tab already closed (likely by Obsidian)');
-                chrome.tabs.onUpdated.removeListener(updateListener);
-                return;
-              }
-              
-              // Only close if tab still exists and shows obsidian:// URL
-              if (tab && (tab.url?.startsWith('obsidian://') || tab.url === 'about:blank')) {
-                chrome.tabs.onUpdated.removeListener(updateListener);
-                chrome.tabs.remove(tabId, () => {
-                  if (chrome.runtime.lastError) {
-                    console.error('[ChatVault Background] ❌ Tab close error:', chrome.runtime.lastError.message);
-                  } else {
-                    console.log('[ChatVault Background] ✅ Tab closed successfully');
-                  }
-                });
-              }
-            });
-          }, 5000); // 5 seconds to ensure Obsidian has time to process
-        }
-      });
       
       console.log('[ChatVault Background] ✅ Success! Sending positive response');
     
@@ -774,13 +660,11 @@ async function handleSaveMultipleMessages(request, sender, sendResponse) {
     }
     
     // Get settings
-    const settings = await new Promise((resolve) => {
-      chrome.storage.sync.get([
-        'obsidianVault',
-        'chatFolderPath',
-        'chatNoteFormat'
-      ], resolve);
-    });
+    const settings = await getSync([
+      'obsidianVault',
+      'chatFolderPath',
+      'chatNoteFormat'
+    ]);
     
     const vaultName = settings.obsidianVault || 'MyVault';
     const folderTemplate = settings.chatFolderPath || 'ChatVault/{service}';
@@ -855,57 +739,35 @@ async function handleSaveMultipleMessages(request, sender, sendResponse) {
           console.log('[ChatVault Background] ✅ Clipboard success, opening Obsidian...');
           
           // Create a simple URI to open Obsidian
-          const simpleUri = `obsidian://new?vault=${encodeURIComponent(vaultName)}&file=${encodeURIComponent(fullFilePath)}`;
+          const simpleUri = buildObsidianNewUri({ vaultName, filePath: fullFilePath });
           
-          chrome.tabs.create({ url: simpleUri }, (tab) => {
-            if (chrome.runtime.lastError) {
-              console.error('[ChatVault Background] ❌ Failed to open Obsidian:', chrome.runtime.lastError);
-              sendResponse({ 
-                success: false, 
-                error: 'Failed to open Obsidian: ' + chrome.runtime.lastError.message
-              });
-              return;
-            }
-            
-            // Close the tab after a delay
-            if (tab?.id) {
-              setTimeout(() => {
-                chrome.tabs.remove(tab.id, () => {
-                  if (chrome.runtime.lastError) {
-                    console.error('[ChatVault Background] Tab close error:', chrome.runtime.lastError.message);
-                  }
-                });
-              }, 3000);
-            }
-            
+          openUrlWithAutoClose(simpleUri, 3000).then(() => {
             sendResponse({ 
               success: true, 
               method: 'clipboard',
               message: `${messages.length} messages copied to clipboard!\n\nObsidian should open now. Paste with Ctrl/Cmd+V`,
               filename: filename
             });
+          }).catch((err) => {
+            console.error('[ChatVault Background] ❌ Failed to open Obsidian:', err);
+            sendResponse({ success: false, error: 'Failed to open Obsidian: ' + (err.message || err) });
           });
         }
       });
     } else {
-      chrome.tabs.create({ url: obsidianUri, active: false }, (tab) => {
-        if (tab?.id) {
-          setTimeout(() => {
-            chrome.tabs.remove(tab.id, () => {
-              if (chrome.runtime.lastError) {
-                console.error('[ChatVault Background] Tab close error:', chrome.runtime.lastError.message);
-              }
-            });
-          }, 3000); // 3 seconds delay to ensure Obsidian processes the request
-        }
-      });
-      
-      sendResponse({ 
-        success: true, 
-        method: 'uri',
-        message: `${messages.length} messages saved to Obsidian`,
-        filename: filename
-      });
+      openUrlWithAutoClose(obsidianUri, 3000)
+        .then(() => {
+          sendResponse({ 
+            success: true, 
+            method: 'uri',
+            message: `${messages.length} messages saved to Obsidian`,
+            filename: filename
+          });
+        })
+        .catch((err) => {
+          console.error('[ChatVault Background] ❌ Failed to open Obsidian:', err);
+          sendResponse({ success: false, error: 'Failed to open Obsidian: ' + (err.message || err) });
+        });
     }
     
   } catch (error) {

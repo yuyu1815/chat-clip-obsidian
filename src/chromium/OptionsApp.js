@@ -1,6 +1,8 @@
 /* global chrome */
 import React, { useState, useEffect } from "react";
 import { toast } from "../utils/toast.js";
+import { buildObsidianNewUri } from "../utils/obsidian.js";
+import { getSync } from "../utils/chrome.js";
 import { logger } from "../utils/logger.js";
 
 const log = logger.create('Options');
@@ -36,7 +38,7 @@ const OptionsApp = () => {
     log.info('Loading settings from storage...');
     
     // Load the settings from browser storage
-    chrome.storage.sync.get(
+    getSync(
       [
         "obsidianVault",
         "folderPath",
@@ -54,8 +56,8 @@ const OptionsApp = () => {
         "saveMethod",
         "downloadsFolder",
         "selectedFolderPath"
-      ],
-      (result) => {
+      ]
+    ).then((result) => {
         log.debug('Loaded settings:', result);
         if (result.obsidianVault) {
           log.debug('Setting vault:', result.obsidianVault);
@@ -103,8 +105,7 @@ const OptionsApp = () => {
         if (result.selectedFolderPath) {
           setFolderPath(result.selectedFolderPath);
         }
-      }
-    );
+    });
   }, []);
 
   const handleSelectFolder = async () => {
@@ -266,11 +267,7 @@ const OptionsApp = () => {
       folderPath = folderPath + "/" + title;
     }
 
-    const obsidianUri = `obsidian://new?vault=${encodeURIComponent(
-      vault
-    )}&file=${encodeURIComponent(
-      folderPath
-    )}&content=${encodeURIComponent(formattedContent)}`;
+    const obsidianUri = buildObsidianNewUri({ vaultName: vault, filePath: folderPath, content: formattedContent });
     
     if (vault.trim() !== "") {
       window.open(obsidianUri, "_blank");
