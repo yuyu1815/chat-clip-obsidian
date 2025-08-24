@@ -1,7 +1,6 @@
 /* global chrome */
 import React, { useState, useEffect } from "react";
-import { toast } from "../../utils/ui/toast.js";
-import { buildObsidianNewUri } from "../../utils/browser/obsidian.js";
+import { toast } from "../../utils/notifications/toast.js";
 import { getSync } from "../../utils/browser/chrome.js";
 
 const OptionsApp = () => {
@@ -9,8 +8,6 @@ const OptionsApp = () => {
   // Original settings
   const [vault, setVault] = useState("");
   const [folder, setFolder] = useState("ChatVault");
-  const [showAdvancedFeatures, setShowAdvancedFeatures] = useState(false);
-  const [noteContentFormat, setNoteContentFormat] = useState("");
 
   // ChatVault settings
   const [showChatSettings, setShowChatSettings] = useState(false);
@@ -26,10 +23,8 @@ const OptionsApp = () => {
   // Save method settings
   const [saveMethod, setSaveMethod] = useState("filesystem");
   const [downloadsFolder, setDownloadsFolder] = useState("ChatVault");
-  const [selectedFolder, setSelectedFolder] = useState(null);
   const [folderPath, setFolderPath] = useState("");
 
-  const defaultNoteContentFormat = "{url}\n\n{content}";
 
   useEffect(() => {
     console.info('[ChatVault Options] Loading settings from storage...');
@@ -39,8 +34,6 @@ const OptionsApp = () => {
       [
         "obsidianVault",
         "folderPath",
-        "showAdvancedFeatures",
-        "noteContentFormat",
         "showChatSettings",
         "defaultMode",
         "showSaveButton",
@@ -121,7 +114,6 @@ const OptionsApp = () => {
       });
 
       console.info('[ChatVault Options] Folder selected:', dirHandle.name);
-      setSelectedFolder(dirHandle);
       setFolderPath(dirHandle.name);
 
       // Store folder path in chrome storage
@@ -205,8 +197,6 @@ const OptionsApp = () => {
       {
         obsidianVault: vault,
         folderPath: folder,
-        showAdvancedFeatures: showAdvancedFeatures,
-        noteContentFormat: noteContentFormat,
         // ChatVault settings
         showChatSettings: showChatSettings,
         defaultMode: defaultMode,
@@ -233,48 +223,6 @@ const OptionsApp = () => {
       }
     );
   };
-
-  const handleTest = () => {
-    if (vault.trim() === "") {
-      alert(
-        "Obsidian Vault名を入力してください。"
-      );
-      return;
-    }
-
-    const title = "Chat Clip Test Note";
-    const url = "https://chat.openai.com/test";
-    const content = "### User\n\nTest question\n\n### Assistant\n\nThis is a test response from Chat Clip Obsidian!";
-    const date = new Date().toISOString().split("T")[0];
-    const service = "ChatGPT";
-
-    let formattedContent = chatNoteFormat
-      .replace("{url}", url)
-      .replace("{title}", title)
-      .replace("{content}", content)
-      .replace("{date}", date)
-      .replace("{service}", service);
-
-    let folderPath = chatFolderPath.trim()
-      .replace("{title}", title)
-      .replace("{service}", service)
-      .replace("{date}", date);
-
-    if (!folderPath.endsWith(title)) {
-      folderPath = folderPath + "/" + title;
-    }
-
-    const obsidianUri = buildObsidianNewUri({ vaultName: vault, filePath: folderPath, content: formattedContent });
-
-    if (vault.trim() !== "") {
-      window.open(obsidianUri, "_blank");
-    } else {
-      alert("有効なObsidian Vault名を入力してください。");
-    }
-  };
-
-  // New state for status message
-  const [statusMessage, setStatusMessage] = useState("");
 
   return (
     <div className="min-h-screen bg-gray-900 text-white font-sans">

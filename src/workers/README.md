@@ -1,15 +1,28 @@
-# workers
+# Workers
 
 Web Workersを含むディレクトリです。
 
-## ファイル
+## 概要
+
+このディレクトリには、バックグラウンド処理を担当するWeb Workersが含まれています。重い処理をメインスレッドから分離し、UIの応答性を保ちます。
+
+## ディレクトリ構造
+
+```
+workers/
+├── textSplitter.js  # テキスト分割処理
+└── README.md        # このファイル
+```
+
+## ファイル説明
 
 ### textSplitter.js
 テキスト分割処理（4.1KB、160行）
 - **機能**: 大規模テキストの分割処理
 - **特徴**: バックグラウンドでの重い処理
+- **用途**: 長いチャット履歴の分割
 
-## 主な機能
+## 主要機能
 
 ### テキスト分割
 - **大規模テキスト**: 長いテキストの効率的な処理
@@ -49,7 +62,7 @@ self.postMessage({
 4. **進捗報告**: 定期的な進捗通知
 5. **結果送信**: 処理完了時の結果送信
 
-## パフォーマンス
+## パフォーマンス最適化
 
 ### 最適化技術
 - **ストリーミング処理**: 大きなデータの段階的処理
@@ -63,9 +76,62 @@ self.postMessage({
 - **CPU使用率**: CPU負荷の監視
 - **エラー率**: エラー発生率の追跡
 
+## 使用例
+
+```javascript
+// Workerの作成
+const worker = new Worker('./workers/textSplitter.js');
+
+// テキスト分割の実行
+worker.postMessage({
+  type: 'split',
+  text: longText,
+  options: {
+    chunkSize: 1000,
+    preserveParagraphs: true
+  }
+});
+
+// 結果の受信
+worker.onmessage = (event) => {
+  const { type, progress, result, error } = event.data;
+  
+  if (type === 'progress') {
+    console.log(`進捗: ${progress}%`);
+  } else if (type === 'complete') {
+    console.log('分割完了:', result);
+  } else if (type === 'error') {
+    console.error('エラー:', error);
+  }
+};
+```
+
 ## 開発ガイドライン
 
-- 重い処理はWorkerで実行
-- 適切なエラーハンドリングを実装
-- メモリリークを防ぐ
-- 進捗報告を定期的に行う
+- **重い処理**: 重い処理はWorkerで実行
+- **エラーハンドリング**: 適切なエラーハンドリングを実装
+- **メモリ管理**: メモリリークを防ぐ
+- **進捗報告**: 進捗報告を定期的に行う
+- **リソース解放**: 処理完了後のリソース解放
+
+## デバッグ
+
+```javascript
+// Worker内でのデバッグ
+console.log('[Worker] 処理開始');
+
+// エラー処理
+try {
+  const result = processData(data);
+  self.postMessage({ type: 'complete', result });
+} catch (error) {
+  self.postMessage({ type: 'error', error: error.message });
+}
+```
+
+## 注意事項
+
+- WorkerはDOMにアクセスできません
+- メインスレッドとの通信は非同期です
+- 適切なリソース管理を行ってください
+- エラー時の適切なフォールバックを実装してください

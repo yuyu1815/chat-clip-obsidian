@@ -81,7 +81,6 @@ module.exports = (env) => {
         patterns: [
           { from: "public", to: ".", globOptions: { ignore: ["**/*.html"] } },
           { from: `manifests/manifest_${browser}.json`, to: "manifest.json" },
-          { from: "src/contentScripts/css/inject.css", to: "contentScript.css" },
           { from: "src/workers", to: "workers" }
         ],
       }),

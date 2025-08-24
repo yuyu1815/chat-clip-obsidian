@@ -11,7 +11,7 @@
     "service_worker": "background.js"
   },
   "options_page": "options.html",
-  "permissions": ["activeTab", "storage", "clipboardWrite", "contextMenus", "downloads", "notifications"],
+  "permissions": ["activeTab", "storage", "clipboardWrite", "contextMenus", "downloads", "notifications", "cookies"],
   "host_permissions": [
     "https://chat.openai.com/*",
     "https://chatgpt.com/*",

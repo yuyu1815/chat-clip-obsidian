@@ -2,8 +2,8 @@
 import "./App.css";
 import React, { useState, useEffect, useRef, Suspense } from "react";
 import { sanitizeTitle } from "../../utils/data/validation.js";
-import { queryActiveTab } from "../../utils/browser/chrome.js";
-import { toast } from "../../utils/ui/toast.js";
+import { queryActiveTab, getSync } from "../../utils/browser/chrome.js";
+import { toast } from "../../utils/notifications/toast.js";
 import ChatModeSelector from "./components/ChatModeSelector";
 
 // Lazy load MarkdownPreview to reduce initial bundle size
