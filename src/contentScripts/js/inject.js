@@ -6,11 +6,7 @@
 import { toast } from '../../utils/notifications/toast.js';
 import { createLogger } from '../../utils/logger.js';
 import { toUserMessage } from '../../utils/messages.js';
-import { initializeChatGPT } from './providers/chatgpt/ui.js';
-import { initializeGemini } from './providers/gemini/ui.js';
-import ClaudeProvider from './providers/claude/index.js';
 import { detectService } from './inject/service.js';
-import { createSaveButton } from './inject/ui.js';
 import { getProvider } from './providers/ProviderFactory.js';
 import { copyToClipboard } from './inject/clipboard.js';
 import { handleFileSystemSave, ensureDirectoryHandleIfNeeded } from './inject/filesystem.js';
@@ -66,7 +62,6 @@ console.info('[ChatVault Content] コンテンツスクリプトを読み込み�
 
   // 設定
   const BUTTON_SELECTOR = '.chatvault-save-btn';
-  const DEBOUNCE_DELAY = 300; // ChatGPTとの競合を減らすために増加
 
   // サービス検出
   const service = detectService();
@@ -85,16 +80,6 @@ console.info('[ChatVault Content] コンテンツスクリプトを読み込み�
     return;
   }
 
-  // DOM操作のレート制限
-  let lastOperationTime = 0;
-  let operationQueue = [];
-
-  // 現在のサービスを検出（ChatGPTのみ）
-  // moved to separate module: inject/service.js
-
-  // 保存ボタン要素を作成
-  // moved to separate module: inject/ui.js
-
   /**
  * ChatGPT用のメッセージセレクタを取得
  * @returns {Object|null} セレクタオブジェクト、プロバイダーが利用できない場合はnull
@@ -103,314 +88,175 @@ console.info('[ChatVault Content] コンテンツスクリプトを読み込み�
     if (!provider) return null;
     return provider.getSelectors();
   }
-
-
-
   /**
- * メッセージ要素に保存ボタンを追加
- * @param {HTMLElement} messageElement - ボタンを追加するメッセージ要素
- */
-  function addSaveButton(messageElement) {
-    // 既存ボタンのチェック
-    const existingButton = messageElement.querySelector(BUTTON_SELECTOR);
-    if (existingButton) {
-      return;
-    }
-
-
-
-    log.debug('メッセージ要素に保存ボタンを追加:', messageElement);
-
-    const button = createSaveButton(service);
-    let buttonAdded = false;
-
-        // プロバイダーに応じてボタンを追加
-    if (provider) {
-      const res = provider.addSaveButton(messageElement, () => createSaveButton(service));
-      if (res.added) {
-        buttonAdded = true;
-        log.debug(`${service}コンテンツ末尾にボタンを追加:`, res.target);
-      }
-    }
-
-    // フォールバック配置
-    if (!buttonAdded) {
-      const fbButton = button && button.isConnected ? button : createSaveButton(service);
-      log.warn('コンテンツエリアが見つかりませんでした、フォールバック配置を使用');
-      messageElement.style.position = 'relative';
-      fbButton.style.position = 'absolute';
-      fbButton.style.top = '10px';
-      fbButton.style.right = '10px';
-      fbButton.style.zIndex = '1000';
-      messageElement.appendChild(fbButton);
-    }
-
-    // クリックハンドラーを追加（デバッグ強化）
-    const actualButton = messageElement.querySelector(BUTTON_SELECTOR) || button;
-    if (!actualButton) return;
-    actualButton.addEventListener('click', async (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      log.info('保存ボタンがクリックされました！', messageElement);
-      log.debug('サービス:', service);
-      log.debug('現在のURL:', window.location.href);
-
-      // CSSクラスを使用してビジュアルフィードバックを追加
-      actualButton.classList.add('chatvault-saving');
-      actualButton.disabled = true;
-
-      try {
-        // File System方式が優先される場合は事前にディレクトリハンドルを確保
-        await ensureDirectoryHandleIfNeeded();
-        await handleSaveClick(messageElement);
-      } catch (error) {
-        log.error('Error in handleSaveClick:', error);
-        console.error('[ChatVault] 保存エラー:', error);
-        actualButton.classList.remove('chatvault-saving');
-        actualButton.classList.add('chatvault-error');
-        actualButton.disabled = false;
-        setTimeout(() => {
-          actualButton.classList.remove('chatvault-error');
-        }, 2000);
-      }
-    });
-  }
-
-
-
-  /**
-   * 保存ボタンクリックイベントを処理
-   * @param {HTMLElement} messageElement - 保存するメッセージ要素
-   * @param {HTMLElement} buttonEl - ボタン要素（オプション）
+   * メッセージデータを抽出して準備する
+   * @param {HTMLElement} messageElement - メッセージ要素
+   * @returns {Object} 準備されたメッセージデータ
    */
-  async function handleSaveClick(messageElement, buttonEl = null) {
-    log.debug('handleSaveClickが呼び出されました:', messageElement);
-    log.debug('メッセージ要素の詳細:', {
-      tagName: messageElement.tagName,
-      className: messageElement.className,
-      textContent: messageElement.textContent?.substring(0, 100) + '...'
-    });
-
-    try {
-      let messageData;
-
-
-
-      // プロバイダーに応じてメッセージを抽出
-      if (!provider) {
-        throw new Error(`プロバイダーが見つかりません: ${service}`);
-      }
-      log.debug(`${service}メッセージを抽出中...`);
-      const extracted = provider.extractSingleMessage(messageElement);
-      const roleLabel = extracted.role === 'user' ? 'User' : 'Assistant';
-      messageData = {
-        messageContent: `### ${roleLabel}\n\n${extracted.content}`,
-        messageType: 'single',
-        conversationTitle: extracted.title,
-        service: service
-      };
-      log.debug('準備されたメッセージデータ:', messageData);
-
-      // バックグラウンドスクリプトに送信
-      log.debug('バックグラウンドにメッセージを送信中:', {
-        action: 'saveSingleMessage',
-        ...messageData
-      });
-
-      // Helper: resilient sendMessage with one retry for transient errors
-      const sendMessageWithRetry = (payload, onResponse, attempts = 2) => {
-        chrome.runtime.sendMessage(payload, (response) => {
-          const lastError = chrome.runtime.lastError;
-          const transient = lastError && (
-            /Extension context invalidated/i.test(lastError.message || '') ||
-            /message port closed/i.test(lastError.message || '') ||
-            /Could not establish connection/i.test(lastError.message || '')
-          );
-          if (transient && attempts > 1) {
-            log.warn('sendMessage transient error, retrying...', lastError?.message);
-            setTimeout(() => sendMessageWithRetry(payload, onResponse, attempts - 1), 300);
-            return;
-          }
-          onResponse(response, lastError);
-        });
-      };
-
-      sendMessageWithRetry({
-        action: 'saveSingleMessage',
-        ...messageData
-      }, (response, lastError) => {
-        log.info('保存レスポンス:', response);
-
-        if (lastError) {
-          log.error('ランタイムエラー:', lastError);
-          console.error('[ChatVault] 保存に失敗しました:', lastError.message);
-          toast.show('保存に失敗しました: ' + lastError.message + '\nページを再読み込みして再試行してください。', 'error');
-          return;
-        }
-        if (response && response.success) {
-          // 成功フィードバックを表示
-          const targetBtn = buttonEl || messageElement.querySelector(BUTTON_SELECTOR);
-          if (targetBtn) {
-            targetBtn.classList.remove('chatvault-saving');
-            targetBtn.classList.add('chatvault-saved');
-            targetBtn.disabled = false;
-            setTimeout(() => {
-              targetBtn.classList.remove('chatvault-saved');
-            }, 2000);
-          }
-          log.info(`メッセージを${response.method}経由で保存: ${response.filename}`);
-          if (response.message) {
-            console.log('[ChatVault] 保存成功:', response.message);
-            toast.show(response.message, 'success');
-          } else if (response.method === 'clipboard') {
-            console.log('[ChatVault] クリップボードにコピーしました。Obsidianで貼り付けてください。');
-            toast.show('クリップボードにコピーしました。Obsidianで貼り付けてください。', 'success');
-          } else {
-            console.log('[ChatVault] メッセージを保存しました。');
-            toast.show('メッセージを保存しました。', 'success');
-          }
-        } else {
-          log.error('メッセージの保存に失敗:', response?.error);
-          const msg = response?.userMessage || toUserMessage(response?.errorCode, response?.error);
-          console.error('[ChatVault] 保存失敗:', msg);
-          toast.show(msg || '保存に失敗しました。', 'error');
-          const targetBtn = buttonEl || messageElement.querySelector(BUTTON_SELECTOR);
-          if (targetBtn) {
-            targetBtn.classList.remove('chatvault-saving');
-            targetBtn.classList.add('chatvault-error');
-            targetBtn.disabled = false;
-            setTimeout(() => {
-              targetBtn.classList.remove('chatvault-error');
-            }, 2000);
-          }
-        }
-      });
-
-    } catch (error) {
-      log.error('保存クリック処理エラー:', error);
-      console.error('[ChatVault] 保存クリック処理エラー:', error);
-      toast.show('保存中にエラーが発生しました: ' + (error?.message || error), 'error');
-      
-      // ボタンの状態をリセット
-      const targetBtn = buttonEl || messageElement.querySelector(BUTTON_SELECTOR);
-      if (targetBtn) {
-        targetBtn.classList.remove('chatvault-saving');
-        targetBtn.classList.add('chatvault-error');
-        targetBtn.disabled = false;
-        setTimeout(() => {
-          targetBtn.classList.remove('chatvault-error');
-        }, 2000);
-      }
+  function extractMessageData(messageElement) {
+    if (!provider) {
+      throw new Error(`プロバイダーが見つかりません: ${service}`);
     }
-  }
-
-  /**
- * DOM変更を監視して新しいメッセージにボタンを追加
- */
-  function observeMessages() {
-    const selectors = getSelectors();
-    if (!selectors) return;
-
-    log.info(`${service}のメッセージ監視を開始、セレクタ:`, selectors);
-    log.debug(`現在のURL: ${window.location.href}`);
-
-    // 既存メッセージの初期スキャン
-    let messages = document.querySelectorAll(selectors.container);
-
-
-
-    log.debug('主要セレクタで', messages.length, '個のメッセージを発見');
-
-
-
-    // メッセージが見つからない場合、より広いセレクタを試すが会話エリア内のみ
-    if (messages.length === 0) {
-      log.debug('メッセージが見つかりませんでした、より広いセレクタを試行中...');
-      // メイン会話エリア内を特に探す
-      const conversationArea = document.querySelector('main[role="main"], [role="main"], main, .conversation-turn');
-      if (conversationArea) {
-        messages = conversationArea.querySelectorAll('[data-message-author-role], .group.w-full, [class*="conversation-turn"]');
-      } else {
-        messages = document.querySelectorAll('[data-message-author-role]:not([data-testid])');
-      }
-      log.debug('より広いセレクタで', messages.length, '個のメッセージを発見');
-    }
-
-    // まだメッセージが見つからない場合、少し待って再試行
-    if (messages.length === 0) {
-      log.debug('まだメッセージが見つかりませんでした、2秒後に再試行します...');
-      setTimeout(() => {
-                  // ChatGPTのみ対応のフォールバックセレクタ
-        let retryMessages = document.querySelectorAll('div, article, section');
-        log.debug('一般的なフォールバック: ', retryMessages.length, '個の潜在的な要素を発見');
-
-        // メッセージのように見える要素にボタンを追加
-        Array.from(retryMessages).filter(el => {
-          const text = el.textContent?.trim();
-
-          return text && text.length > 10 && text.length < 10000; // 妥当なメッセージ長
-        }).slice(0, 15).forEach(addSaveButton); // スパムを避けるために最初の15個に制限
-      }, 2000);
-    }
-
-    messages.forEach(addSaveButton);
-
-
-
-    // 新しいメッセージ用のmutation observerを設定
-    const observer = new MutationObserver(debounce((mutations) => {
-      mutations.forEach((mutation) => {
-        mutation.addedNodes.forEach((node) => {
-          if (node.nodeType === Node.ELEMENT_NODE) {
-            // 追加されたノードがメッセージかどうかをチェック
-            if (node.matches && node.matches(selectors.container)) {
-              addSaveButton(node);
-            }
-            // 追加されたノードがメッセージを含むかどうかをチェック
-            const newMessages = node.querySelectorAll ? node.querySelectorAll(selectors.container) : [];
-            newMessages.forEach(addSaveButton);
-
-
-          }
-        });
-        // 新機能: メッセージの可視性/更新を示す可能性のある属性変更を処理（SPA）
-        if (mutation.type === 'attributes' && mutation.target && mutation.target.matches) {
-          const targetEl = mutation.target;
-          if (targetEl.matches(selectors.container)) {
-            addSaveButton(targetEl);
-          }
-
-        }
-      });
-    }, DEBOUNCE_DELAY));
-
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true,
-      attributes: true
-    });
-  }
-
-  /**
-   * オブザーバーコールバックを制限するデバウンス関数
-   * @param {Function} func - デバウンスする関数
-   * @param {number} wait - 待機時間（ミリ秒）
-   * @returns {Function} デバウンスされた関数
-   */
-  function debounce(func, wait) {
-    let timeout;
-    return function executedFunction(...args) {
-      const later = () => {
-        clearTimeout(timeout);
-        func(...args);
-      };
-      clearTimeout(timeout);
-      timeout = setTimeout(later, wait);
+    
+    log.debug(`${service}メッセージを抽出中...`);
+    const extracted = provider.extractSingleMessage(messageElement);
+    const roleLabel = extracted.role === 'user' ? 'User' : 'Assistant';
+    
+    return {
+      messageContent: `### ${roleLabel}\n\n${extracted.content}`,
+      messageType: 'single',
+      conversationTitle: extracted.title,
+      service: service
     };
   }
 
   /**
-   * プロバイダー対応のメッセージキャプチャ処理
+   * ボタンの状態を更新する
+   * @param {HTMLElement} button - ボタン要素
+   * @param {string} state - 新しい状態 ('saving', 'saved', 'error', 'reset')
+   */
+  function updateButtonState(button, state) {
+    if (!button) return;
+    
+    // 既存のクラスをクリア
+    button.classList.remove('chatvault-saving', 'chatvault-saved', 'chatvault-error');
+    
+    switch (state) {
+      case 'saving':
+        button.classList.add('chatvault-saving');
+        button.disabled = true;
+        break;
+      case 'saved':
+        button.classList.add('chatvault-saved');
+        button.disabled = false;
+        setTimeout(() => button.classList.remove('chatvault-saved'), 2000);
+        break;
+      case 'error':
+        button.classList.add('chatvault-error');
+        button.disabled = false;
+        setTimeout(() => button.classList.remove('chatvault-error'), 2000);
+        break;
+      case 'reset':
+        button.disabled = false;
+        break;
+    }
+  }
+
+  /**
+   * 成功メッセージを表示する
+   * @param {Object} response - レスポンスオブジェクト
+   */
+  function showSuccessMessage(response) {
+    log.info(`メッセージを${response.method}経由で保存: ${response.filename}`);
+    
+    if (response.message) {
+      console.log('[ChatVault] 保存成功:', response.message);
+      toast.show(response.message, 'success');
+    } else if (response.method === 'clipboard') {
+      console.log('[ChatVault] クリップボードにコピーしました。Obsidianで貼り付けてください。');
+      toast.show('クリップボードにコピーしました。Obsidianで貼り付けてください。', 'success');
+    } else {
+      console.log('[ChatVault] メッセージを保存しました。');
+      toast.show('メッセージを保存しました。', 'success');
+    }
+  }
+
+  /**
+   * エラーメッセージを表示する
+   * @param {Object|string} error - エラーオブジェクトまたはメッセージ
+   * @param {string} userMessage - ユーザー向けメッセージ（オプション）
+   */
+  function showErrorMessage(error, userMessage = null) {
+    const message = userMessage || error?.message || error || '保存に失敗しました。';
+    log.error('保存エラー:', error);
+    console.error('[ChatVault] 保存失敗:', message);
+    toast.show(message, 'error');
+  }
+
+  /**
+   * 保存レスポンスを処理する
+   * @param {Object} response - レスポンスオブジェクト
+   * @param {Object} lastError - Chromeランタイムエラー
+   * @param {HTMLElement} messageElement - メッセージ要素
+   * @param {HTMLElement} buttonEl - ボタン要素
+   */
+  function handleSaveResponse(response, lastError, messageElement, buttonEl) {
+    log.info('保存レスポンス:', response);
+    const targetBtn = buttonEl || messageElement.querySelector(BUTTON_SELECTOR);
+
+    if (lastError) {
+      showErrorMessage(lastError, '保存に失敗しました: ' + lastError.message + '\nページを再読み込みして再試行してください。');
+      return;
+    }
+
+    if (response && response.success) {
+      updateButtonState(targetBtn, 'saved');
+      showSuccessMessage(response);
+    } else {
+      const msg = response?.userMessage || toUserMessage(response?.errorCode, response?.error);
+      updateButtonState(targetBtn, 'error');
+      showErrorMessage(response?.error, msg);
+    }
+  }
+
+  /**
+   * 保存ボタンクリックイベントを処理（シンプル版）
+   * @param {HTMLElement} messageElement - 保存するメッセージ要素
+   * @param {HTMLElement} buttonEl - ボタン要素（オプション）
+   */
+  async function handleSaveClick(messageElement, buttonEl = null) {
+    log.debug('メッセージ保存を開始します:', {
+      tagName: messageElement.tagName,
+      className: messageElement.className
+    });
+
+    try {
+      // 1. メッセージデータを抽出
+      const messageData = extractMessageData(messageElement);
+      log.debug('準備されたメッセージデータ:', messageData);
+
+      // 2. バックグラウンドに送信（再試行付き）
+      sendMessageWithRetry({
+        action: 'saveSingleMessage',
+        ...messageData
+      }, (response, lastError) => {
+        handleSaveResponse(response, lastError, messageElement, buttonEl);
+      });
+
+    } catch (error) {
+      log.error('保存処理エラー:', error);
+      const targetBtn = buttonEl || messageElement.querySelector(BUTTON_SELECTOR);
+      updateButtonState(targetBtn, 'error');
+      showErrorMessage(error, '保存中にエラーが発生しました: ' + (error?.message || error));
+    }
+  }
+
+  /**
+   * 再試行付きメッセージ送信
+   * @param {Object} payload - 送信データ
+   * @param {Function} onResponse - レスポンスコールバック
+   * @param {number} attempts - 試行回数
+   */
+  function sendMessageWithRetry(payload, onResponse, attempts = 2) {
+    chrome.runtime.sendMessage(payload, (response) => {
+      const lastError = chrome.runtime.lastError;
+      const transient = lastError && (
+        /Extension context invalidated/i.test(lastError.message || '') ||
+        /message port closed/i.test(lastError.message || '') ||
+        /Could not establish connection/i.test(lastError.message || '')
+      );
+      
+      if (transient && attempts > 1) {
+        log.warn('送信エラー、再試行中...', lastError?.message);
+        setTimeout(() => sendMessageWithRetry(payload, onResponse, attempts - 1), 300);
+        return;
+      }
+      
+      onResponse(response, lastError);
+    });
+  }
+  /**
+     * プロバイダー対応のメッセージキャプチャ処理
    * @param {string} mode - キャプチャモード ('all', 'recent', 'selected')
    * @param {number|null} count - キャプチャするメッセージ数（recentモードの場合）
    * @returns {Object} キャプチャ結果
@@ -436,37 +282,6 @@ console.info('[ChatVault Content] コンテンツスクリプトを読み込み�
     }
   }
 
-  /**
-   * クリップボードコピー機能
-   * @param {string} content - コピーするコンテンツ
-   * @returns {Promise<Object>} コピー結果
-   */
-
-  /**
-   * File System Access API機能
-   * @param {string} content - 保存するコンテンツ
-   * @param {string} relativePath - 保存先の相対パス
-   * @returns {Promise<Object>} 保存結果
-   */
-
-  /**
-   * saveMethodがfilesystemを優先する場合、ユーザージェスチャーでディレクトリハンドルを確保
-   */
-
-  /**
-   * IndexedDBからディレクトリハンドルを読み込み
-   * @returns {Promise<Object|null>} ディレクトリハンドルまたはnull
-   */
-
-  /**
-   * IndexedDBにディレクトリハンドルを保存（ページオリジン）
-   * @param {Object} handle - 保存するディレクトリハンドル
-   */
-
-  /**
-   * IndexedDBを開く
-   * @returns {Promise<IDBDatabase>} データベースオブジェクト
-   */
 
 
   // ポップアップとバックグラウンドスクリプトからのメッセージをリッスン
@@ -609,6 +424,7 @@ console.info('[ChatVault Content] コンテンツスクリプトを読み込み�
     return; // let Chrome close the port normally for sync cases
   });
 
+
   // 初期化処理をサービスに応じて実行
   const init = () => {
     if (!provider) {
@@ -616,44 +432,8 @@ console.info('[ChatVault Content] コンテンツスクリプトを読み込み�
       return;
     }
 
-    if (service === 'chatgpt') {
-      initializeChatGPT(() => createSaveButton(service));
-    } else if (service === 'gemini') {
-      initializeGemini(() => createSaveButton(service));
-    } else if (service === 'claude') {
-      // Claudeの場合はAPIベースの初期化
-      ClaudeProvider.initializeSession().then(success => {
-        if (success) {
-          ClaudeProvider.startPolling();
-
-          // 既存のメッセージにボタンを追加
-          const selectors = ClaudeProvider.getSelectors();
-          const messages = document.querySelectorAll(selectors.container);
-          messages.forEach((msg) => {
-            ClaudeProvider.addSaveButton(msg, () => createSaveButton(service));
-          });
-
-          // 動的なメッセージ追加に対応
-          const observer = new MutationObserver((mutations) => {
-            for (const mutation of mutations) {
-              if (mutation.type === 'childList') {
-                mutation.addedNodes.forEach((node) => {
-                  if (node.nodeType !== Node.ELEMENT_NODE) return;
-                  if (node.matches && node.matches(selectors.container)) {
-                    ClaudeProvider.addSaveButton(node, () => createSaveButton(service));
-                  }
-                  const newMsgs = node.querySelectorAll ? node.querySelectorAll(selectors.container) : [];
-                  newMsgs.forEach((n) => {
-                    ClaudeProvider.addSaveButton(n, () => createSaveButton(service));
-                  });
-                });
-              }
-            }
-          });
-          observer.observe(document.body, { childList: true, subtree: true });
-        }
-      });
-    }
+    // 統一された初期化処理
+    provider.initialize();
 
     // イベントデリゲーションで保存ボタンクリックを捕捉（UIファイルはそのまま使用）
     // Claude では保存機能を無効化するため、イベントデリゲーションを登録しない

@@ -22,10 +22,10 @@
     "page": "options.html",
     "open_in_tab": true
   },
-  "permissions": ["activeTab", "storage", "clipboardWrite", "cookies", "https://chat.openai.com/*", "https://claude.ai/*", "https://gemini.google.com/*", "https://aistudio.google.com/*"],
+  "permissions": ["activeTab", "storage", "clipboardWrite", "cookies", "https://chat.openai.com/*", "https://chatgpt.com/*", "https://claude.ai/*", "https://gemini.google.com/*", "https://aistudio.google.com/*", "https://notebooklm.google.com/*"],
   "content_scripts": [
     {
-      "matches": ["https://chat.openai.com/*", "https://claude.ai/*", "https://gemini.google.com/*", "https://aistudio.google.com/*"],
+      "matches": ["https://chat.openai.com/*", "https://chatgpt.com/*", "https://claude.ai/*", "https://gemini.google.com/*", "https://aistudio.google.com/*", "https://notebooklm.google.com/*"],
       "js": ["contentScript.js"],
       "css": ["contentScript.css"]
     }

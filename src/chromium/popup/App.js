@@ -279,9 +279,9 @@ url: ${pageInfo.url}
               chrome.storage.local.set({ saveHistory: newHistory });
 
               // Customize message based on method used
-              let message = 'Chat saved successfully!';
+              let message = 'チャットが正常に保存されました！';
               if (response.method === 'clipboard') {
-                message = 'Content copied! Opening Obsidian...';
+                message = 'コンテンツをコピーしました！Obsidianを開いています...';
                 // Show extended message
                 if (response.message) {
                   alert(response.message);
@@ -293,7 +293,7 @@ url: ${pageInfo.url}
 
               setTimeout(() => window.close(), response.method === 'clipboard' ? 2500 : 1500);
             } else {
-              const msg = response?.userMessage || (response?.error ? '保存に失敗しました: ' + response.error : 'Failed to save chat');
+              const msg = response?.userMessage || (response?.error ? '保存に失敗しました: ' + response.error : 'チャットの保存に失敗しました');
               setNotification({ type: 'error', message: msg });
               toast.show(msg, 'error');
             }
@@ -313,10 +313,10 @@ url: ${pageInfo.url}
     const sanitizedValue = sanitizeTitle(e.target.value);
     if (sanitizedValue !== e.target.value) {
       setErrorMsg(
-        'The title contains invalid characters. Please avoid using these characters in the title: \\ : * ? " < > | /'
+        'タイトルに無効な文字が含まれています。これらの文字は使用しないでください: \\ : * ? " < > | /'
       );
     } else if (sanitizedValue.length > 250) {
-      setErrorMsg("The title is too long");
+      setErrorMsg("タイトルが長すぎます");
     } else {
       setErrorMsg("");
     }
@@ -346,7 +346,7 @@ url: ${pageInfo.url}
       <div className={`px-4 py-3 border-b ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
         <div className="flex items-center justify-between">
           <h1 className={`text-lg font-semibold ${darkMode ? 'text-white' : 'text-gray-900'}`}>
-            ChatVault Clip
+            ChatVault クリップ
           </h1>
           <div className="flex items-center space-x-2">
             <span className={`text-xs px-2 py-1 rounded-full ${
@@ -354,7 +354,7 @@ url: ${pageInfo.url}
                 ? 'bg-green-500/20 text-green-400' 
                 : 'bg-gray-500/20 text-gray-400'
             }`}>
-              {isOnChatPage ? 'Ready' : 'Not on chat page'}
+              {isOnChatPage ? '準備完了' : 'チャットページではありません'}
             </span>
           </div>
         </div>
@@ -367,6 +367,7 @@ url: ${pageInfo.url}
             onCountChange={setMessageCount}
             defaultMode={mode}
             defaultCount={messageCount}
+            darkMode={darkMode}
           />
         </div>
       )}
@@ -374,14 +375,14 @@ url: ${pageInfo.url}
       <div className="p-4">
           <div className="text-center">
             <div className="text-sm text-zinc-600 mb-2">
-              {mode === 'single' && "Click 'Save' to capture the current message"}
-              {mode === 'selection' && "Select text on the page, then click 'Save'"}
-              {mode === 'recent' && `Will save the last ${messageCount} messages`}
-              {mode === 'full' && "Will save the entire conversation"}
+              {mode === 'single' && "「保存」をクリックして現在のメッセージを取得します"}
+              {mode === 'selection' && "ページ上のテキストを選択してから「保存」をクリックしてください"}
+              {mode === 'recent' && `最新の${messageCount}件のメッセージを保存します`}
+              {mode === 'full' && "会話全体を保存します"}
             </div>
             {!isOnChatPage && (
               <div className="text-xs text-red-500">
-                This feature only works on supported chat pages (ChatGPT, Claude)
+                この機能はサポートされているチャットページでのみ動作します（ChatGPT、Claude）
               </div>
             )}
           </div>
@@ -389,7 +390,7 @@ url: ${pageInfo.url}
           {saveHistory.length > 0 && (
             <div className={`mt-4 pt-3 border-t ${darkMode ? 'border-gray-700' : 'border-gray-200'}`}>
               <div className={`text-xs mb-2 font-medium ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                Recent Saves
+                最近の保存
               </div>
               <div className="space-y-1">
                 {saveHistory.map((item, index) => (
@@ -429,6 +430,7 @@ url: ${pageInfo.url}
               content={chatPreviewContent}
               isLoading={loading}
               maxHeight="300px"
+              darkMode={darkMode}
             />
           </Suspense>
         </div>
@@ -490,7 +492,7 @@ url: ${pageInfo.url}
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                   </svg>
-                  <span>Options</span>
+                  <span>オプション</span>
                 </div>
               </button>
               <button
@@ -506,7 +508,7 @@ url: ${pageInfo.url}
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                   </svg>
-                  <span>{showPreview ? 'Hide' : 'Show'} Preview</span>
+                  <span>プレビューを{showPreview ? '非表示' : '表示'}</span>
                 </div>
               </button>
               <button
@@ -519,7 +521,7 @@ url: ${pageInfo.url}
               >
                 <div className="flex items-center space-x-3">
                   <span className="text-lg">{darkMode ? '☀️' : '🌙'}</span>
-                  <span>{darkMode ? 'Light Mode' : 'Dark Mode'}</span>
+                  <span>{darkMode ? 'ライトモード' : 'ダークモード'}</span>
                 </div>
               </button>
               <button
@@ -534,7 +536,7 @@ url: ${pageInfo.url}
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
                   </svg>
-                  <span>Support Us</span>
+                  <span>サポート</span>
                 </div>
               </button>
             </div>
@@ -549,7 +551,7 @@ url: ${pageInfo.url}
             }`}
             onClick={handleCancel}
           >
-            Cancel
+            キャンセル
           </button>
           <button
             ref={saveButtonRef}
@@ -564,10 +566,10 @@ url: ${pageInfo.url}
             }`}
             onClick={saveNote}
             disabled={saveButtonDisabled}
-            title="Save (Alt+S)"
+            title="保存 (Alt+S)"
           >
             <span className="flex items-center space-x-2">
-              <span>Save</span>
+              <span>保存</span>
               <span className="text-xs opacity-75">⌥S</span>
             </span>
           </button>

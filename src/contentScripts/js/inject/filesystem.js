@@ -92,7 +92,7 @@ export async function ensureDirectoryHandleIfNeeded() {
 
 export async function handleFileSystemSave(content, relativePath) {
   try {
-    console.log('[ChatVault] File System Access API保存を試行中...');
+    console.log('[ChatVault] File System Access API保存を試行中:', relativePath);
 
     let dirHandle = await loadDirectoryHandle();
     if (!dirHandle) {
@@ -117,20 +117,80 @@ export async function handleFileSystemSave(content, relativePath) {
     }
 
     const pathSegments = relativePath.split('/').filter(segment => segment);
-    const fileName = pathSegments.pop();
+    let fileName = pathSegments.pop();
 
     let currentDir = dirHandle;
     for (const segment of pathSegments) {
       currentDir = await currentDir.getDirectoryHandle(segment, { create: true });
     }
 
-    const fileHandle = await currentDir.getFileHandle(fileName, { create: true });
+    // Enhanced duplicate prevention logic
+    let finalFileName = fileName;
+    let counter = 1;
+    let isDuplicate = false;
+    let wasRenamed = false;
+
+    try {
+      // Check if file already exists
+      const existingHandle = await currentDir.getFileHandle(finalFileName, { create: false });
+      const existingFile = await existingHandle.getFile();
+      const existingContent = await existingFile.text();
+      
+      // Check if content is identical
+      if (existingContent === content) {
+        console.log('[ChatVault] 同じ内容のファイルが既に存在します:', finalFileName);
+        return { 
+          success: true, 
+          method: 'filesystem', 
+          message: `既存ファイル「${finalFileName}」と同じ内容のため、保存をスキップしました。`,
+          isDuplicate: true,
+          skipped: true
+        };
+      }
+      
+      // Content is different, generate unique filename
+      const baseName = fileName.replace(/\.md$/, '');
+      let tryFileName;
+      while (true) {
+        try {
+          tryFileName = `${baseName}_${counter}.md`;
+          await currentDir.getFileHandle(tryFileName, { create: false });
+          counter++;
+        } catch (e) {
+          // File doesn't exist, use this name
+          finalFileName = tryFileName;
+          wasRenamed = true;
+          break;
+        }
+      }
+      
+    } catch (e) {
+      // Original file doesn't exist, proceed with original name
+      console.log('[ChatVault] ファイルが存在しないため、元のファイル名で保存します');
+    }
+
+    // Create and write the file
+    const fileHandle = await currentDir.getFileHandle(finalFileName, { create: true });
     const writable = await fileHandle.createWritable();
     await writable.write(content);
     await writable.close();
 
-    console.log('[ChatVault] File System Access API経由でファイルを保存しました');
-    return { success: true, method: 'filesystem' };
+    console.log('[ChatVault] File System Access API経由でファイルを保存しました:', finalFileName);
+    
+    const result = { 
+      success: true, 
+      method: 'filesystem',
+      finalFileName,
+      originalFileName: fileName
+    };
+    
+    if (wasRenamed) {
+      result.message = `「${finalFileName}」として保存しました（重複回避のため名前を変更）`;
+      result.wasRenamed = true;
+    }
+    
+    return result;
+    
   } catch (error) {
     console.error('[ChatVault] File System Access APIエラー:', error);
     return { success: false, error: error.message };

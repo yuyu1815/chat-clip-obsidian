@@ -9,6 +9,23 @@ import { createLogger } from '../../utils/logger.js';
 // ロガー
 const log = createLogger('ChatVault Background');
 
+// Content hash function for duplicate prevention
+async function createContentHash(content) {
+  try {
+    // Use built-in crypto.subtle API for content hashing
+    const encoder = new TextEncoder();
+    const data = encoder.encode(content);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const hashHex = hashArray.map(byte => byte.toString(16).padStart(2, '0')).join('');
+    return hashHex;
+  } catch (error) {
+    log.warn('Content hash generation failed, using timestamp fallback:', error);
+    // Fallback to timestamp-based hash
+    return Date.now().toString(16);
+  }
+}
+
 // Handle extension installation
 chrome.runtime.onInstalled.addListener(function (details) {
   if (details.reason === "install") {
@@ -111,6 +128,45 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       })();
       return true;
 
+    case 'openObsidianTab':
+      // Content scriptからの依頼でObsidianタブを開く
+      (async () => {
+        try {
+          const { url, autoClose = true, delayMs = 2000 } = request;
+          if (!url) {
+            sendResponse({ success: false, error: 'URL is required' });
+            return;
+          }
+
+          console.log('[ChatVault Background] Opening Obsidian tab:', url);
+          
+          if (autoClose) {
+            const tab = await openUrlWithAutoClose(url, delayMs, { active: false });
+            sendResponse({ 
+              success: true, 
+              tabId: tab?.id,
+              message: 'Obsidian tab opened with auto-close'
+            });
+          } else {
+            chrome.tabs.create({ url, active: false }, (tab) => {
+              if (chrome.runtime.lastError) {
+                sendResponse({ success: false, error: chrome.runtime.lastError.message });
+              } else {
+                sendResponse({ 
+                  success: true, 
+                  tabId: tab?.id,
+                  message: 'Obsidian tab opened'
+                });
+              }
+            });
+          }
+        } catch (error) {
+          console.error('[ChatVault Background] Error opening Obsidian tab:', error);
+          sendResponse({ success: false, error: error.message });
+        }
+      })();
+      return true;
+
     default:
       try {
         sendResponse({ success: false, error: 'Unknown action', action: request.action });
@@ -147,7 +203,7 @@ async function saveViaDownloadAPI(content, filename, folderPath) {
       url: dataUrl,
       filename: downloadPath,
       saveAs: false, // Auto-save without dialog (if user settings allow)
-      conflictAction: 'uniquify' // Automatically rename if file exists
+      conflictAction: 'uniquify' // Automatically rename if file exists - 重複回避
     };
 
     console.log('[ChatVault Background] 📥 Download path:', downloadPath);
@@ -233,14 +289,22 @@ async function handleSaveMessage(request, sender, sendResponse) {
     const isSelection = metadata?.type === 'selection';
     const normalizedType = messageType || (isSelection ? 'selection' : 'single');
 
-    // Generate filename with timestamp
+    // Generate filename with timestamp and content hash for better duplicate prevention
     const now = new Date();
     const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
     const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '-'); // HH-MM-SS
+    
     // Sanitize title - allow Japanese characters
     const sanitizedTitle = sanitizeForFilename(conversationTitle, 'untitled');
     const typePrefix = normalizedType === 'artifact' ? 'artifact_' : (normalizedType === 'selection' ? 'selection_' : '');
-    const filename = `${dateStr}_${timeStr}_${typePrefix}${service}_${sanitizedTitle}.md`;
+    
+    // Create content hash for better duplicate detection
+    const contentHash = await createContentHash(normalizedMessageContent);
+    const shortHash = contentHash.substring(0, 8); // 8文字のハッシュ
+    
+    const filename = `${dateStr}_${timeStr}_${typePrefix}${service}_${sanitizedTitle}_${shortHash}.md`;
+    
+    log.debug('Generated filename with hash:', filename);
 
     // Create full folder path using ChatVault settings
     const fullFolderPath = chatFolderPath

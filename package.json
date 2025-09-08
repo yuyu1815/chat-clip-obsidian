@@ -12,17 +12,7 @@
     "turndown-plugin-gfm": "^1.0.2"
   },
   "scripts": {
-    "dev:chromium": "webpack --watch --env browser=chromium --config webpack.dev.js",
-    "dev:firefox": "webpack --watch --env browser=firefox --config webpack.dev.js",
-    "build:chromium": "webpack --env browser=chromium --config webpack.config.js",
-    "build:firefox": "webpack --env browser=firefox --config webpack.config.js",
-    "test": "jest",
-    "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage",
-    "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui",
-    "analyze:chromium": "npm run build:chromium && npx webpack-bundle-analyzer dist-chromium/static/js/*.js",
-    "analyze:firefox": "npm run build:firefox && npx webpack-bundle-analyzer dist-firefox/static/js/*.js"
+    "build:chromium": "webpack --env browser=chromium --config webpack.config.js"
   },
   "eslintConfig": {
     "extends": [

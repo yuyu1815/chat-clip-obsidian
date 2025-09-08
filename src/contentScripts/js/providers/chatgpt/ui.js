@@ -134,7 +134,7 @@ let globalObserver = null;
  * 初期化処理 - 動的コンテンツに対応（SPA遷移にも対応）
  * @param {Function} createSaveButton - ボタン作成関数
  */
-function initializeChatGPT(createSaveButton) {
+function initializeChatGPT() {
   // 既存のObserverをクリーンアップ
   if (globalObserver) {
     globalObserver.disconnect();
@@ -150,7 +150,7 @@ function initializeChatGPT(createSaveButton) {
 
   // メッセージにボタンを追加（コピーボタンの親要素を対象とする）
   messages.forEach(copyButton => {
-    addSaveButton(copyButton.parentElement, createSaveButton);
+    addSaveButton(copyButton.parentElement, () => createSaveButton());
   });
 
   // 新しいメッセージ用のmutation observerを設定
@@ -166,7 +166,7 @@ function initializeChatGPT(createSaveButton) {
               : node.querySelectorAll ? node.querySelectorAll('[data-testid="copy-turn-action-button"]') : [];
             
             copyButtons.forEach(copyButton => {
-              addSaveButton(copyButton.parentElement, createSaveButton);
+              addSaveButton(copyButton.parentElement, () => createSaveButton());
             });
           }
         });
@@ -174,7 +174,7 @@ function initializeChatGPT(createSaveButton) {
       
       // 属性変更時の処理
       if (mutation.type === 'attributes' && mutation.target.matches('[data-testid="copy-turn-action-button"]')) {
-        addSaveButton(mutation.target.parentElement, createSaveButton);
+        addSaveButton(mutation.target.parentElement, () => createSaveButton());
       }
     });
   });

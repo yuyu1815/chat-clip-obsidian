@@ -6,9 +6,8 @@ const log = createLogger('Claude API');
 // API設定
 const API_BASE = 'https://claude.ai/api';
 // ポーリング設定（ミリ秒）とリトライ最大回数
-// 必要に応じて将来オプション化するが、未定義エラーを防ぐためにデフォルトをここで定義
-const POLLING_INTERVAL = 2000; // 2秒ごとに更新チェック
-const MAX_RETRIES = 5; // エラー時の最大リトライ回数
+const POLLING_INTERVAL = 5000; // 5秒ごとに更新チェック（負荷軽減）
+const MAX_RETRIES = 3; // エラー時の最大リトライ回数（削減）
 
 // セッション管理
 let currentSession = {
@@ -87,14 +86,16 @@ function extractChatId(url) {
 }
 
 // APIリクエストを実行
-async function fetchChatData(orgId, chatId, urlType) {
+async function fetchChatData(orgId, chatId, urlType, minimalData = false) {
   try {
     let url;
 
     if (urlType === 'shared') {
-      url = `${API_BASE}/chat_snapshots/${chatId}?rendering_mode=messages&render_all_tools=true`;
+      url = `${API_BASE}/chat_snapshots/${chatId}?rendering_mode=messages`;
+      if (!minimalData) url += '&render_all_tools=true';
     } else {
-      url = `${API_BASE}/organizations/${orgId}/chat_conversations/${chatId}?rendering_mode=messages&render_all_tools=true`;
+      url = `${API_BASE}/organizations/${orgId}/chat_conversations/${chatId}?rendering_mode=messages`;
+      if (!minimalData) url += '&render_all_tools=true';
     }
 
     const response = await fetch(url, {
@@ -173,15 +174,12 @@ async function getMessageByIndex(index) {
       throw new Error('セッション情報が不足しています');
     }
 
-    log.debug(`メッセージ取得開始: index=${index}`);
     const data = await fetchChatData(currentSession.orgId, currentSession.chatId, currentSession.urlType);
 
     if (!data.chat_messages || !Array.isArray(data.chat_messages)) {
-      log.error('メッセージデータが見つかりません:', data);
+      log.error('メッセージデータが見つかりません');
       throw new Error('メッセージデータが見つかりません');
     }
-
-    log.debug(`全メッセージ数: ${data.chat_messages.length}, 求められたインデックス: ${index}`);
 
     if (index < 0 || index >= data.chat_messages.length) {
       log.error(`インデックス ${index} は範囲外です (0-${data.chat_messages.length - 1})`);
@@ -208,14 +206,6 @@ async function getMessageByIndex(index) {
     }
 
     const message = data.chat_messages[index];
-    log.debug(`メッセージ取得成功:`, {
-      index,
-      uuid: message.uuid,
-      sender: message.sender,
-      contentLength: message.content?.length || 0,
-      hasContent: !!message.content
-    });
-
     const content = extractMessageContent(message.content);
 
     return {
@@ -242,13 +232,10 @@ async function getMessageByIndex(index) {
 // セッションを初期化
 async function initializeSession() {
   try {
-    log.info('セッション初期化開始');
-
     const urlInfo = extractChatId(window.location.href);
     if (!urlInfo) {
       throw new Error('チャットIDまたはスナップショットIDを取得できませんでした。有効なチャットページにいることを確認してください。');
     }
-    log.debug('URL情報取得:', urlInfo);
 
     // 共有URLの場合は組織IDが不要
     let orgId = null;
@@ -257,9 +244,6 @@ async function initializeSession() {
       if (!orgId) {
         throw new Error('組織IDを取得できませんでした。Claude.aiにログインしてください。');
       }
-      log.debug('組織ID取得:', orgId);
-    } else {
-      log.debug('共有URLのため組織IDは不要');
     }
 
     currentSession.orgId = orgId;
@@ -267,31 +251,10 @@ async function initializeSession() {
     currentSession.urlType = urlInfo.type;
 
     // 初期データを取得してupdated_atを設定
-    log.debug('初期データを取得中...');
     const data = await fetchChatData(orgId, urlInfo.id, urlInfo.type);
     currentSession.lastUpdatedAt = data.updated_at;
 
-    log.info('セッション初期化完了:', {
-      orgId,
-      chatId: urlInfo.id,
-      urlType: urlInfo.type,
-      lastUpdatedAt: currentSession.lastUpdatedAt,
-      messageCount: data.chat_messages?.length || 0,
-      // 全データを出力
-      fullData: data,
-      sessionInfo: {
-        orgId: currentSession.orgId,
-        chatId: currentSession.chatId,
-        urlType: currentSession.urlType,
-        lastUpdatedAt: currentSession.lastUpdatedAt,
-        isPolling: currentSession.isPolling,
-        retryCount: currentSession.retryCount
-      },
-      urlInfo: urlInfo,
-      apiUrl: urlInfo.type === 'shared'
-        ? `${API_BASE}/chat_snapshots/${urlInfo.id}?rendering_mode=messages&render_all_tools=true`
-        : `${API_BASE}/organizations/${orgId}/chat_conversations/${urlInfo.id}?rendering_mode=messages&render_all_tools=true`
-    });
+    log.info('セッション初期化完了');
     return true;
   } catch (error) {
     log.error('セッション初期化に失敗:', error);
@@ -314,26 +277,20 @@ async function startPolling() {
   if (currentSession.isPolling) return;
 
   currentSession.isPolling = true;
-  log.info('ポーリング開始');
 
   const poll = async () => {
     if (!currentSession.isPolling) return;
 
     try {
-      const data = await fetchChatData(currentSession.orgId, currentSession.chatId, currentSession.urlType);
+      const data = await fetchChatData(currentSession.orgId, currentSession.chatId, currentSession.urlType, true);
 
       if (data.updated_at !== currentSession.lastUpdatedAt) {
-        log.info('変更を検出:', {
-          old: currentSession.lastUpdatedAt,
-          new: data.updated_at
-        });
-
         currentSession.lastUpdatedAt = data.updated_at;
         currentSession.retryCount = 0;
 
-        // 変更イベントを発火
+        // 変更イベントを発火（データなしで軽量化）
         window.dispatchEvent(new CustomEvent('claudeMessageUpdated', {
-          detail: { data }
+          detail: { updated_at: data.updated_at }
         }));
       }
     } catch (error) {
@@ -355,7 +312,6 @@ async function startPolling() {
 
       // 指数バックオフでリトライ間隔を調整
       const backoffDelay = Math.min(POLLING_INTERVAL * Math.pow(2, currentSession.retryCount), 30000);
-      log.debug(`リトライ間隔を調整: ${backoffDelay}ms`);
       setTimeout(poll, backoffDelay);
       return;
     }
@@ -370,7 +326,6 @@ async function startPolling() {
 // ポーリングを停止
 function stopPolling() {
   currentSession.isPolling = false;
-  log.info('ポーリング停止');
 }
 
 // セッション情報を取得
