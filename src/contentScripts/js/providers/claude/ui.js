@@ -27,7 +27,92 @@ function createSaveButton() {
     align-items: center;
     justify-content: center;
   `;
-  button.setAttribute('aria-label', 'Save to Obsidian');
+  const tooltipLabel = 'Obsidianに保存';
+
+  const applyTooltip = () => {
+    if (button.getAttribute('aria-label') !== tooltipLabel) {
+      button.setAttribute('aria-label', tooltipLabel);
+    }
+    button.removeAttribute('title');
+    if (button.getAttribute('data-tooltip') !== tooltipLabel) {
+      button.setAttribute('data-tooltip', tooltipLabel);
+    }
+    button.dataset.chatvaultTooltip = tooltipLabel;
+  };
+  applyTooltip();
+
+  // Claude側が属性を書き換えてもツールチップを維持する
+  const tooltipObserver = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      if (mutation.type !== 'attributes') continue;
+      const name = mutation.attributeName;
+      if (name === 'aria-label' || name === 'title' || name === 'data-tooltip') {
+        applyTooltip();
+        break;
+      }
+    }
+  });
+  tooltipObserver.observe(button, { attributes: true });
+
+  let tooltipFixInterval = null;
+  const stopTooltipFix = () => {
+    if (tooltipFixInterval) {
+      clearInterval(tooltipFixInterval);
+      tooltipFixInterval = null;
+    }
+  };
+
+  const updateTooltipContent = () => {
+    const tooltipId = button.getAttribute('aria-describedby');
+    if (tooltipId) {
+      const tooltipEl = document.getElementById(tooltipId);
+      if (tooltipEl) {
+        const target = tooltipEl.querySelector('[data-radix-tooltip-content]') || tooltipEl;
+        const currentText = (target.textContent || '').trim();
+        if (currentText !== tooltipLabel) {
+          target.textContent = tooltipLabel;
+        }
+        return true;
+      }
+    }
+
+    const candidates = document.querySelectorAll('[data-radix-tooltip-content], [role="tooltip"], [data-radix-popper-content-wrapper]');
+    let updated = false;
+    candidates.forEach((candidate) => {
+      const text = (candidate.textContent || '').trim();
+      if (!text) return;
+      if (text === 'コピー' || /^copy$/i.test(text)) {
+        candidate.textContent = tooltipLabel;
+        updated = true;
+      }
+    });
+    return updated;
+  };
+
+  const handleMouseEnter = () => {
+    applyTooltip();
+    button.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+    button.style.color = 'rgb(255, 255, 255)';
+
+    stopTooltipFix();
+    tooltipFixInterval = setInterval(() => {
+      const done = updateTooltipContent();
+      if (done) {
+        stopTooltipFix();
+      }
+    }, 80);
+  };
+
+  const handleMouseLeave = () => {
+    button.style.backgroundColor = 'transparent';
+    button.style.color = 'rgb(160, 160, 160)';
+    stopTooltipFix();
+  };
+
+  button.addEventListener('mouseenter', handleMouseEnter);
+  button.addEventListener('mouseleave', handleMouseLeave);
+  button.addEventListener('blur', handleMouseLeave);
+
   button.innerHTML = `
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
       <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/>
@@ -35,17 +120,6 @@ function createSaveButton() {
       <polyline points="7 3 7 8 15 8"/>
     </svg>
   `;
-
-  // ホバー効果
-  button.addEventListener('mouseenter', () => {
-    button.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
-    button.style.color = 'rgb(255, 255, 255)';
-  });
-
-  button.addEventListener('mouseleave', () => {
-    button.style.backgroundColor = 'transparent';
-    button.style.color = 'rgb(160, 160, 160)';
-  });
 
   // クリックイベント処理
   button.addEventListener('click', async (e) => {
@@ -488,21 +562,39 @@ type: single
 // inject.jsから移動したClaude特有の初期化・監視処理
 async function startContentScriptIntegration(service) {
   try {
-    const success = await initializeSession();
-    if (!success) {
-      log.error('Claude統合の初期化に失敗しました');
-      return false;
+    const selectors = getSelectors();
+
+    const sessionInitialized = await initializeSession();
+    if (sessionInitialized) {
+      startPolling();
+    } else {
+      log.warn('Claudeセッションの初期化に失敗しましたが、保存ボタンの挿入は継続します。');
     }
-    
-    // ポーリング開始
-    startPolling();
 
     // 既存のメッセージにボタンを追加
-    const selectors = getSelectors();
     const messages = document.querySelectorAll(selectors.container);
     messages.forEach((msg) => {
       addSaveButton(msg, () => createSaveButton());
     });
+
+    let retriedSession = sessionInitialized;
+    let isReinitializing = false;
+    const tryReinitializeSession = async (reason) => {
+      if (retriedSession || getSessionInfo?.()?.chatId || isReinitializing) {
+        return;
+      }
+      isReinitializing = true;
+      try {
+        const ok = await initializeSession();
+        if (ok) {
+          retriedSession = true;
+          startPolling();
+          log.info(`Claudeセッションを再初期化しました (${reason})`);
+        }
+      } finally {
+        isReinitializing = false;
+      }
+    };
 
     // 動的なメッセージ追加・更新に対応（SPA変化へ追従）
     const observer = new MutationObserver((mutations) => {
@@ -512,16 +604,19 @@ async function startContentScriptIntegration(service) {
             if (node.nodeType !== Node.ELEMENT_NODE) return;
             if (node.matches && node.matches(selectors.container)) {
               addSaveButton(node, () => createSaveButton());
+              tryReinitializeSession('mutation-add');
             }
             const newMsgs = node.querySelectorAll ? node.querySelectorAll(selectors.container) : [];
             newMsgs.forEach((n) => {
               addSaveButton(n, () => createSaveButton());
+              tryReinitializeSession('mutation-nested');
             });
           });
         }
         if (mutation.type === 'attributes' && mutation.target && mutation.target.matches && mutation.target.matches(selectors.container)) {
           // 既存メッセージの属性変化（表示/非表示、再レンダリング）時にも再試行
           addSaveButton(mutation.target, () => createSaveButton());
+          tryReinitializeSession('mutation-attr');
         }
       }
     });
@@ -544,7 +639,10 @@ async function startContentScriptIntegration(service) {
     };
 
     // 既に開いているメニューがあれば注入
-    document.querySelectorAll('[data-radix-menu-content][role="menu"], [data-radix-menu-content]').forEach(maybeInjectObsidianLabel);
+    document.querySelectorAll('[data-radix-menu-content][role="menu"], [data-radix-menu-content]').forEach((menuEl) => {
+      maybeInjectObsidianLabel(menuEl);
+      tryReinitializeSession('existing-menu');
+    });
 
     const menuObserver = new MutationObserver((mutations) => {
       for (const m of mutations) {
@@ -553,14 +651,22 @@ async function startContentScriptIntegration(service) {
           if (!(node instanceof Element)) return;
           if (node.matches && (node.matches('[data-radix-menu-content][role="menu"]') || node.matches('[data-radix-menu-content]'))) {
             maybeInjectObsidianLabel(node);
+            tryReinitializeSession('menu-add');
           }
           // wrapper内にメニューが入っている場合
           const menus = node.querySelectorAll ? node.querySelectorAll('[data-radix-menu-content][role="menu"], [data-radix-menu-content]') : [];
-          menus.forEach(maybeInjectObsidianLabel);
+          menus.forEach((menuEl) => {
+            maybeInjectObsidianLabel(menuEl);
+            tryReinitializeSession('menu-nested');
+          });
         });
       }
     });
     menuObserver.observe(document.body, { childList: true, subtree: true });
+
+    window.addEventListener('popstate', () => {
+      setTimeout(() => tryReinitializeSession('popstate'), 100);
+    });
 
     log.info('Claude統合の初期化が完了しました');
     return true;

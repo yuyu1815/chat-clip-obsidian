@@ -11,39 +11,53 @@ let globalObserver = null;
  */
 function createSaveButton() {
   const button = document.createElement('button');
-  button.className = 'mdc-icon-button mat-mdc-icon-button mat-mdc-button-base mat-mdc-tooltip-trigger icon-button mat-unthemed chatvault-save-btn';
-  button.setAttribute('mat-icon-button', '');
-  button.setAttribute('mattooltip', 'Obsidianに保存');
+  button.className = 'chatvault-save-btn gemini-chatvault-save-btn';
+  button.setAttribute('type', 'button');
   button.setAttribute('aria-label', 'Obsidianに保存');
   button.setAttribute('data-test-id', 'chatvault-save-button');
-  
+
   button.style.cssText = `
-    color: #5f6368;
+    background-color: transparent;
+    color: rgba(232, 234, 237, 0.9);
+    border: none;
+    border-radius: 9999px;
+    cursor: pointer;
     transition: background-color 0.2s ease, color 0.2s ease;
+    width: 36px;
+    height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
   `;
-  
+
   button.innerHTML = `
-    <span class="mat-mdc-button-persistent-ripple mdc-icon-button__ripple"></span>
-    <svg class="mat-icon notranslate gds-icon-m google-symbols mat-ligature-font mat-icon-no-color" 
-         width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-         role="img" aria-hidden="true">
-      <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/>
-      <polyline points="17 21 17 13 7 13 7 21"/>
-      <polyline points="7 3 7 8 15 8"/>
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"></path>
+      <polyline points="17 21 17 13 7 13 7 21"></polyline>
+      <polyline points="7 3 7 8 15 8"></polyline>
     </svg>
-    <span class="mat-focus-indicator"></span>
-    <span class="mat-mdc-button-touch-target"></span>
   `;
 
-  // ホバーイベント
-  button.addEventListener('mouseenter', () => {
-    button.style.backgroundColor = 'rgba(95, 99, 104, 0.1)';
-    button.style.color = '#1a73e8';
-  });
+  const setHoverState = (active) => {
+    if (active) {
+      button.style.backgroundColor = 'rgba(138, 180, 248, 0.16)';
+      button.style.color = '#8ab4f8';
+    } else {
+      button.style.backgroundColor = 'transparent';
+      button.style.color = 'rgba(232, 234, 237, 0.9)';
+    }
+  };
 
-  button.addEventListener('mouseleave', () => {
-    button.style.backgroundColor = 'transparent';
-    button.style.color = '#5f6368';
+  button.addEventListener('mouseenter', () => setHoverState(true));
+  button.addEventListener('mouseleave', () => setHoverState(false));
+  button.addEventListener('focus', () => setHoverState(true));
+  button.addEventListener('blur', () => setHoverState(false));
+  button.addEventListener('mousedown', () => {
+    button.style.backgroundColor = 'rgba(138, 180, 248, 0.24)';
+  });
+  button.addEventListener('mouseup', () => {
+    button.style.backgroundColor = 'rgba(138, 180, 248, 0.16)';
   });
 
   return button;
