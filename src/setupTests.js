@@ -1,32 +1,33 @@
-// jest-dom adds custom jest matchers for asserting on DOM nodes.
-require('@testing-library/jest-dom');
+// Jest setup file
+import '@testing-library/jest-dom';
 
-// Chrome Extension API のモック
+// Mock fetch globally for tests
+global.fetch = jest.fn();
+
+// Mock chrome extension APIs
 global.chrome = {
-  storage: {
-    local: {
-      get: jest.fn(() => Promise.resolve({})),
-      set: jest.fn(() => Promise.resolve()),
-      clear: jest.fn(() => Promise.resolve())
-    },
-    sync: {
-      get: jest.fn(() => Promise.resolve({})),
-      set: jest.fn(() => Promise.resolve())
-    }
-  },
   runtime: {
-    sendMessage: jest.fn(() => Promise.resolve()),
+    sendMessage: jest.fn(),
     onMessage: {
       addListener: jest.fn(),
       removeListener: jest.fn()
     }
   },
+  storage: {
+    local: {
+      get: jest.fn(),
+      set: jest.fn()
+    }
+  },
   tabs: {
-    query: jest.fn(() => Promise.resolve([])),
-    sendMessage: jest.fn(() => Promise.resolve())
+    query: jest.fn(),
+    sendMessage: jest.fn()
   }
 };
 
-// File System Access API のモック
-global.showDirectoryPicker = jest.fn();
-global.showSaveFilePicker = jest.fn(); 
+// Mock console to reduce noise in tests
+global.console = {
+  ...console,
+  warn: jest.fn(),
+  error: jest.fn()
+};

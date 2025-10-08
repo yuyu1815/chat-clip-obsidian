@@ -10,10 +10,10 @@ module.exports = (env) => {
 
   return {
     entry: {
-      popup: `./src/${browser}/index.js`,
-      options: `./src/${browser}/options.js`,
-      background: `./src/${browser}/background.js`,
-      contentScript: './src/contentScripts/inject.js',
+      popup: `./src/${browser}/popup/index.js`,
+      options: `./src/${browser}/options/options.js`,
+      background: `./src/${browser}/background/background.js`,
+      contentScript: './src/contentScripts/js/inject.js',
     },
     output: {
       filename: "[name].js",
@@ -80,7 +80,7 @@ module.exports = (env) => {
         patterns: [
           { from: "public", to: ".", globOptions: { ignore: ["**/*.html"] } },
           { from: `manifests/manifest_${browser}.json`, to: "manifest.json" }, // Copy the appropriate manifest
-          { from: "src/contentScripts/inject.css", to: "contentScript.css" },
+          { from: "src/contentScripts/css/inject.css", to: "contentScript.css" },
         ],
       }),
     ],
