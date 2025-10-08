@@ -71,21 +71,33 @@ npm run build:chromium
 ## 設定
 
 1. **拡張機能アイコン**をクリックして**オプション**を選択
-2. **保存方法の選択**（NEW!）:
-   - **Direct Save (推奨)**: File System Access APIでVaultに直接保存
+2. **保存方法の選択**（Advanced URI Plugin推奨）:
+   - **Advanced URI Plugin (推奨)**: ObsidianのAdvanced URIプラグインと連携して即時保存
+   - **Direct Save**: File System Access APIでVaultに直接保存
    - **Downloads API**: ダウンロードフォルダ経由で保存
-   - **Advanced URI Plugin**: Obsidianプラグイン経由
    - **Clipboard**: クリップボード経由（手動貼り付け）
-3. **Direct Save設定**（推奨）:
+3. **Advanced URIプラグイン設定（推奨）**:
+   - Obsidianで「Advanced URI」コミュニティプラグインをインストールして有効化
+   - Chat Clip Obsidianの保存方法から「Advanced URI Plugin」を選択
+   - Obsidianが起動している状態でURI呼び出しを許可すると、ワンクリック保存が有効になります
+4. **Direct Save設定**（任意）:
    - 「Select Vault Folder」ボタンでObsidian Vaultフォルダを選択
    - 一度選択すれば、以降は自動的に直接保存されます
-4. **基本設定**:
+5. **基本設定**:
    - **Obsidian Vault名**: 保存先のvault名を入力
    - **保存フォルダ**: 保存先パス（例：`AI Chats/{service}/{date}`）
-5. **カスタマイズ可能**:
+6. **カスタマイズ可能**:
    - デフォルト保存モード
    - ファイル名形式
    - Markdownテンプレート
+
+## 推奨保存方法
+
+**Advanced URIプラグイン**
+- ObsidianのコミュニティプラグインからAdvanced URIをインストールして有効化
+- ObsidianでURIリンクの受付を許可し、Vaultを開いた状態にしておく
+- Chat Clip Obsidianの保存方法で「Advanced URI プラグイン」を選択し連携を有効化
+- 保存ボタンをクリックすると、Obsidian内で対象Vaultにノートが即時作成されます
 
 ## 使用方法
 
