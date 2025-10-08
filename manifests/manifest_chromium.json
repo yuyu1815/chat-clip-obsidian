@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "ChatVault Clip — AI Chat to Obsidian",
+  "name": "Chat Clip Obsidian — AIチャットをObsidianへ",
   "version": "0.1.0",
-  "description": "Save AI chat conversations from ChatGPT, Claude and more to your Obsidian vault.",
+  "description": "Save AI chat conversations from ChatGPT, Claude, and Google Gemini directly to your Obsidian vault.",
   "action": {
     "default_icon": "logo48.png",
     "default_popup": "popup.html"

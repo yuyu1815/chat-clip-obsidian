@@ -490,14 +490,6 @@ const OptionsApp = () => {
           </button>
         </div>
 
-        {statusMessage && (
-          <div className={`mt-4 p-3 rounded-lg text-center ${
-            statusMessage.includes('Error') ? 'bg-red-500' : 'bg-green-500'
-          }`}>
-            {statusMessage}
-          </div>
-        )}
-
       </div>
     </div>
   );

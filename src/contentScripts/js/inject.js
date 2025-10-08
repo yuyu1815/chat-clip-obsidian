@@ -11,6 +11,7 @@ import { getProvider } from './providers/ProviderFactory.js';
 import { copyToClipboard } from './inject/clipboard.js';
 import { handleFileSystemSave, ensureDirectoryHandleIfNeeded } from './inject/filesystem.js';
 import { enableSelectionMode, getSelectedContent } from './inject/selection.js';
+import '../css/inject.css';
 
 // ロガー
 const log = createLogger('ChatVault');
