@@ -330,7 +330,6 @@ const OptionsApp = () => {
                   <option value="filesystem">File System API (推奨)</option>
                   <option value="advanced-uri">Advanced URI プラグイン</option>
                   <option value="downloads">ダウンロードフォルダ経由</option>
-                  <option value="clipboard">クリップボード経由</option>
                   <option value="auto">自動選択</option>
                 </select>
               </div>

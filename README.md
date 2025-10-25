@@ -71,17 +71,17 @@ npm run build:chromium
 ## 設定
 
 1. **拡張機能アイコン**をクリックして**オプション**を選択
-2. **保存方法の選択**（Advanced URI Plugin推奨）:
-   - **Advanced URI Plugin (推奨)**: ObsidianのAdvanced URIプラグインと連携して即時保存
-   - **Direct Save**: File System Access APIでVaultに直接保存
-   - **Downloads API**: ダウンロードフォルダ経由で保存
-   - **Clipboard**: クリップボード経由（手動貼り付け）
-3. **Advanced URIプラグイン設定（推奨）**:
+2. **保存方法の選択**:
+   - **File System API (推奨)**: File System Access APIでVaultに直接保存
+   - **Advanced URI プラグイン**: ObsidianのAdvanced URIプラグインと連携して即時保存
+   - **ダウンロードフォルダ経由**: ダウンロードフォルダ経由で保存
+   - **自動選択**: 状況に応じて最適な方法を自動選択
+3. **Advanced URIプラグイン設定**（任意）:
    - Obsidianで「Advanced URI」コミュニティプラグインをインストールして有効化
-   - Chat Clip Obsidianの保存方法から「Advanced URI Plugin」を選択
+   - Chat Clip Obsidianの保存方法から「Advanced URI プラグイン」を選択
    - Obsidianが起動している状態でURI呼び出しを許可すると、ワンクリック保存が有効になります
-4. **Direct Save設定**（任意）:
-   - 「Select Vault Folder」ボタンでObsidian Vaultフォルダを選択
+4. **File System API設定**（推奨）:
+   - 「Vault フォルダを選択」ボタンでObsidian Vaultフォルダを選択
    - 一度選択すれば、以降は自動的に直接保存されます
 5. **基本設定**:
    - **Obsidian Vault名**: 保存先のvault名を入力
@@ -207,8 +207,8 @@ src/
 - Obsidianが起動しているか確認してください
 
 **Q: 長い会話が保存できない**
-- 自動的にクリップボード経由で保存されます
-- Obsidianで貼り付けを行ってください
+- 保存方法を「ダウンロードフォルダ経由」に変更してください
+- または「自動選択」を使用すると、コンテンツサイズに応じて適切な方法が選択されます
 
 ## 開発への貢献
 
