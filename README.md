@@ -1,6 +1,6 @@
 # Chat Clip Obsidian — AIチャットをObsidianへ
 
-ChatGPT、Claude、その他の生成AIサービスのチャット会話を、ワンクリックでObsidian vaultにMarkdownとして保存するChrome拡張機能。
+ChatGPTやGoogle Geminiなどの生成AIサービスのチャット会話を、ワンクリックでObsidian vaultにMarkdownとして保存するChrome拡張機能。
 
 ## 概要
 
@@ -12,7 +12,7 @@ Chat Clip Obsidianは、Web版生成AIチャットサービスの会話を効率
 - 📝 **複数の保存モード**: 単一メッセージ、選択範囲、最新N件、会話全体
 - 🎯 **ワンクリック保存**: メッセージにホバーで表示される保存ボタン
 - 📁 **スマート整理**: サービス別、日付別の自動フォルダ分類
-- ✨ **きれいなMarkdown**: コードブロック、数式、フォーマットを保持
+- ✨ **きれいなMarkdown**: コードブロック、数式、定義リスト、ネストされたリスト、画像キャプションなどを適切に変換
 - 🔗 **直接連携**: Obsidian URIで即座にノート作成
 - 💾 **直接保存機能**: File System Access APIによるVaultへの直接書き込み（NEW!）
 - 🔔 **保存通知**: ファイル保存成功時の通知表示
@@ -22,9 +22,9 @@ Chat Clip Obsidianは、Web版生成AIチャットサービスの会話を効率
 ### 現在対応済み
 - ✅ **ChatGPT** (`chat.openai.com`, `chatgpt.com`)
 - ✅ **Claude** (`claude.ai`)
+- ✅ **Google Gemini** (`gemini.google.com`)
 
 ### 今後対応予定
-- 🔄 **Google Gemini**
 - 🔄 **Perplexity AI**
 - 🔄 **その他の生成AIサービス**
 
@@ -71,29 +71,45 @@ npm run build:chromium
 ## 設定
 
 1. **拡張機能アイコン**をクリックして**オプション**を選択
-2. **保存方法の選択**（NEW!）:
-   - **Direct Save (推奨)**: File System Access APIでVaultに直接保存
-   - **Downloads API**: ダウンロードフォルダ経由で保存
-   - **Advanced URI Plugin**: Obsidianプラグイン経由
-   - **Clipboard**: クリップボード経由（手動貼り付け）
-3. **Direct Save設定**（推奨）:
-   - 「Select Vault Folder」ボタンでObsidian Vaultフォルダを選択
+2. **保存方法の選択**:
+   - **File System API (推奨)**: File System Access APIでVaultに直接保存
+   - **Advanced URI プラグイン**: ObsidianのAdvanced URIプラグインと連携して即時保存
+   - **ダウンロードフォルダ経由**: ダウンロードフォルダ経由で保存
+   - **自動選択**: 状況に応じて最適な方法を自動選択
+3. **Advanced URIプラグイン設定**（任意）:
+   - Obsidianで「Advanced URI」コミュニティプラグインをインストールして有効化
+   - Chat Clip Obsidianの保存方法から「Advanced URI プラグイン」を選択
+   - Obsidianが起動している状態でURI呼び出しを許可すると、ワンクリック保存が有効になります
+4. **File System API設定**（推奨）:
+   - 「Vault フォルダを選択」ボタンでObsidian Vaultフォルダを選択
    - 一度選択すれば、以降は自動的に直接保存されます
-4. **基本設定**:
+5. **基本設定**:
    - **Obsidian Vault名**: 保存先のvault名を入力
    - **保存フォルダ**: 保存先パス（例：`AI Chats/{service}/{date}`）
-5. **カスタマイズ可能**:
+6. **カスタマイズ可能**:
    - デフォルト保存モード
    - ファイル名形式
    - Markdownテンプレート
+
+## 推奨保存方法
+
+**Advanced URIプラグイン**
+- ObsidianのコミュニティプラグインからAdvanced URIをインストールして有効化
+- ObsidianでURIリンクの受付を許可し、Vaultを開いた状態にしておく
+- Chat Clip Obsidianの保存方法で「Advanced URI プラグイン」を選択し連携を有効化
+- 保存ボタンをクリックすると、Obsidian内で対象Vaultにノートが即時作成されます
 
 ## 使用方法
 
 ### 基本的な使い方
 
-1. **ChatGPTまたはClaude**にアクセス
+1. **ChatGPT・Claude・Gemini**のいずれかにアクセス
 2. **保存したいメッセージにホバー**すると「Save」ボタンが表示
 3. **ボタンをクリック**でObsidianに保存完了
+
+> ℹ️ **Claudeでのツールチップ表示について**
+>
+> Claudeは独自のツールチップ（Radix UI）を使用しているため、保存ボタンにカーソルを合わせると「Copy」と表示される場合があります。ボタン自体は正常に動作しますが、表示はClaude側の仕様で上書きされるため、現状はそのままの挙動となります。
 
 ### その他の保存方法
 
@@ -130,19 +146,28 @@ function example() {
 $$E = mc^2$$
 ```
 
+## HTML→Markdown変換機能
+
+Chat Clip Obsidianは、[Turndown](https://github.com/mixmark-io/turndown)ライブラリを使用して、AIチャットのHTML要素を高品質なMarkdownに変換します。以下の要素を適切に処理します：
+
+- **コードブロック**: 言語指定を保持し、フェンスド形式で出力
+- **インラインコード**: バッククォートで適切に囲む
+- **数式表現**: KaTeXやMathJax形式の数式を保持
+- **定義リスト**: 用語と説明を適切なフォーマットで変換
+- **ネストされたリスト**: 複数階層のリストを適切なインデントで保持
+- **画像とキャプション**: 画像とその説明文を適切に変換
+- **HTMLコメント**: コメントを保持
+- **特殊要素の保持**: iframe、canvas、SVGなどの特殊要素をHTML形式で保持
+
+これにより、AIチャットの複雑なフォーマットやコンテンツを失うことなく、Obsidianで活用できます。
+
 ## 開発・カスタマイズ
 
 ### 開発環境
 
 ```bash
-# 開発モード（ファイル監視）
-npm run dev:chromium
-
 # プロダクションビルド
 npm run build:chromium
-
-# Firefox版ビルド
-npm run build:firefox
 ```
 
 ### プロジェクト構造
@@ -158,7 +183,6 @@ src/
 ## ロードマップ
 
 ### 近日実装予定
-- [ ] **Google Gemini**対応
 - [ ] **Perplexity AI**対応
 - [ ] 一括エクスポート機能
 - [ ] カスタムテンプレ機能
@@ -183,8 +207,8 @@ src/
 - Obsidianが起動しているか確認してください
 
 **Q: 長い会話が保存できない**
-- 自動的にクリップボード経由で保存されます
-- Obsidianで貼り付けを行ってください
+- 保存方法を「ダウンロードフォルダ経由」に変更してください
+- または「自動選択」を使用すると、コンテンツサイズに応じて適切な方法が選択されます
 
 ## 開発への貢献
 
@@ -201,7 +225,7 @@ src/
 - **Manifest**: Version 3
 - **フレームワーク**: React, Tailwind CSS
 - **ビルドツール**: Webpack
-- **ライブラリ**: Turndown（Markdown変換）
+- **ライブラリ**: Turndown（HTML→Markdown変換、カスタムルールで拡張）
 
 ## クレジット
 

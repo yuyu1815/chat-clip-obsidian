@@ -1,0 +1,37 @@
+.chatvault-save-btn {
+  align-items: center;
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  height: 36px;
+  justify-content: center;
+  margin-left: 4px;
+  padding: 6px;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.chatvault-save-btn:hover {
+  background-color: rgba(26, 115, 232, 0.12);
+  color: #1a73e8;
+}
+
+.chatvault-save-btn.chatvault-saving {
+  cursor: progress;
+  opacity: 0.7;
+}
+
+.chatvault-save-btn.chatvault-saved {
+  color: #1a73e8;
+}
+
+.chatvault-save-btn.chatvault-error {
+  color: #d93025;
+}
+
+.chatvault-save-btn .mat-icon {
+  font-size: 20px;
+  line-height: 1;
+}

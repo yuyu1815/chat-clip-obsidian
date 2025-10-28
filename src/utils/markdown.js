@@ -1,162 +1,261 @@
-/**
- * Markdown conversion utilities using Turndown
- */
-
+// HTML -> Markdown conversion utility using Turndown
+// Keep the implementation minimal but robust for Chat UI content
 import TurndownService from 'turndown';
 import { gfm } from 'turndown-plugin-gfm';
 
-class MarkdownConverter {
-  constructor() {
-    this.turndownService = new TurndownService({
-      headingStyle: 'atx',
-      codeBlockStyle: 'fenced',
-      fence: '```',
-      bulletListMarker: '-',
-      strongDelimiter: '**',
-      emDelimiter: '*'
-    });
+let singletonTd = null;
 
-    // Use GFM plugin for tables, strikethrough, etc.
-    this.turndownService.use(gfm);
+function getTurndown() {
+  if (singletonTd) return singletonTd;
 
-    // Custom rules for better conversion
-    this.addCustomRules();
-  }
+  const td = new TurndownService({
+    headingStyle: 'atx',
+    codeBlockStyle: 'fenced',
+    bulletListMarker: '-',
+    emDelimiter: '*',
+    br: '\n',
+    strongDelimiter: '**',
+  });
 
-  addCustomRules() {
-    // Preserve code blocks with language
-    this.turndownService.addRule('codeBlock', {
-      filter: function (node) {
-        return node.nodeName === 'PRE' && node.querySelector('code');
-      },
-      replacement: function (content, node) {
-        const codeElement = node.querySelector('code');
-        const language = node.getAttribute('data-language') || 
-                        codeElement.getAttribute('class')?.match(/language-(\w+)/)?.[1] || '';
-        const code = codeElement.textContent;
-        return '\n```' + language + '\n' + code + '\n```\n';
+  // GitHub Flavored Markdown rules (tables, strikethrough, task lists, code)
+  td.use(gfm);
+
+  // Preserve horizontal rules
+  td.addRule('hr', {
+    filter: ['hr'],
+    replacement: () => '\n\n---\n\n'
+  });
+
+  // Preserve inline code spans more reliably
+  td.addRule('inlineCode', {
+    filter: (node) => node.nodeName === 'CODE' && node.parentNode && node.parentNode.nodeName !== 'PRE',
+    replacement: (content) => '`' + content.replace(/`/g, '\u200b`') + '`'
+  });
+
+  // Handle pre>code blocks with language class
+  td.addRule('fencedCode', {
+    filter: (node) => {
+      if (node.nodeName !== 'PRE') return false;
+      const code = Array.from(node.childNodes).find(n => n.nodeName === 'CODE');
+      return !!code;
+    },
+    replacement: (_content, node) => {
+      const codeEl = Array.from(node.childNodes).find(n => n.nodeName === 'CODE');
+      const className = (codeEl?.getAttribute('class') || '').toLowerCase();
+      const langMatch = className.match(/language-([a-z0-9+#-]+)/i) || className.match(/lang-([a-z0-9+#-]+)/i);
+      const lang = langMatch ? langMatch[1] : '';
+      const text = codeEl?.textContent || '';
+      return `\n\n\u0060\u0060\u0060${lang}\n${text}\n\u0060\u0060\u0060\n\n`;
+    }
+  });
+
+  // Unwrap ChatGPT specific wrappers that are purely presentational
+  td.addRule('unwrapPresentation', {
+    filter: (node) => {
+      if (!(node instanceof HTMLElement)) return false;
+      const cls = node.className || '';
+      // Common ChatGPT/markdown wrappers
+      return /(prose|markdown|whitespace-pre-wrap)/.test(cls);
+    },
+    replacement: (content) => content
+  });
+
+  singletonTd = td;
+  return singletonTd;
+}
+
+/**
+ * Convert HTML string to Markdown.
+ * If input is empty or not a string, returns empty string.
+ * @param {string} md
+ * @returns {string}
+ */
+function normalizeTableSpacing(md) {
+  if (!md) return md;
+  const lines = md.split('\n');
+  const result = [];
+  let inTable = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const next = i + 1 < lines.length ? lines[i + 1] : '';
+    const isTableRow = /^\s*\|.*\|\s*$/.test(line);
+    const isSeparator = /^\s*\|?\s*:?[-]{3,}.*\|.*$/.test(next);
+
+    if (!inTable) {
+      if (isTableRow && isSeparator) {
+        inTable = true;
+        result.push(line);
+        continue;
       }
-    });
-
-    // Handle inline code
-    this.turndownService.addRule('inlineCode', {
-      filter: function (node) {
-        return node.nodeName === 'CODE' && node.parentNode && node.parentNode.nodeName !== 'PRE';
-      },
-      replacement: function (content) {
-        return '`' + content + '`';
-      }
-    });
-
-    // Preserve math expressions
-    this.turndownService.addRule('mathExpression', {
-      filter: function (node) {
-        return node.classList && (
-          node.classList.contains('math-inline') || 
-          node.classList.contains('math-block') ||
-          node.classList.contains('katex')
-        );
-      },
-      replacement: function (content, node) {
-        // Math content should already be wrapped in $ or $$
-        return content;
-      }
-    });
-
-    // Handle ChatGPT/Claude specific formatting
-    this.turndownService.addRule('messageFormatting', {
-      filter: function (node) {
-        return node.classList && node.classList.contains('whitespace-pre-wrap');
-      },
-      replacement: function (content) {
-        // Preserve whitespace in pre-wrapped content
-        return content;
-      }
-    });
-  }
-
-  /**
-   * Convert HTML to Markdown
-   * @param {string} html - HTML content to convert
-   * @returns {string} Markdown content
-   */
-  convert(html) {
-    return this.turndownService.turndown(html);
-  }
-
-  /**
-   * Convert messages array to formatted Markdown
-   * @param {Array} messages - Array of message objects
-   * @param {Object} options - Formatting options
-   * @returns {string} Formatted Markdown content
-   */
-  messagesToMarkdown(messages, options = {}) {
-    const {
-      includeTimestamp = false,
-      speakerLabels = { user: 'User', assistant: 'Assistant' },
-      separator = '\n\n---\n\n'
-    } = options;
-
-    return messages.map(message => {
-      const speaker = speakerLabels[message.role] || message.role;
-      const header = `### ${speaker}`;
-      const timestamp = includeTimestamp ? `\n*${new Date(message.timestamp).toLocaleString()}*\n` : '';
-      const content = this.convert(message.content);
-      
-      return header + timestamp + '\n\n' + content;
-    }).join(separator);
-  }
-
-  /**
-   * Create a complete Obsidian note from messages
-   * @param {Object} data - Note data including messages, metadata, etc.
-   * @returns {string} Complete Markdown note
-   */
-  createObsidianNote(data) {
-    const {
-      title,
-      url,
-      messages,
-      service,
-      template = '{url}\n\n{content}',
-      includeMetadata = true
-    } = data;
-
-    const date = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD format
-    const content = this.messagesToMarkdown(messages);
-    
-    // Build frontmatter if metadata is included
-    let frontmatter = '';
-    if (includeMetadata) {
-      frontmatter = `---
-title: ${title}
-date: ${date}
-service: ${service}
-url: ${url}
----\n\n`;
+      result.push(line);
+      continue;
     }
 
-    // Replace template variables
-    let note = template
-      .replace('{url}', url)
-      .replace('{title}', title)
-      .replace('{content}', content)
-      .replace('{date}', date)
-      .replace('{service}', service);
-
-    // Add frontmatter if not using custom template
-    if (template === '{url}\n\n{content}' && includeMetadata) {
-      note = frontmatter + note;
+    if (line.trim() === '') {
+      continue;
     }
 
-    return note;
+    if (isTableRow) {
+      result.push(line);
+    } else {
+      inTable = false;
+      result.push(line);
+    }
+  }
+  return result.join('\n');
+}
+
+export function htmlToMarkdown(html) {
+  if (!html || typeof html !== 'string') return '';
+  try {
+    const td = getTurndown();
+    const md = td.turndown(html);
+    return normalizeTableSpacing(md);
+  } catch (e) {
+    // Fallback: strip tags naively
+    return html.replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/(p|div|li|h[1-6])>/gi, '\n\n')
+      .replace(/<[^>]+>/g, '')
+      .trim();
   }
 }
 
-export default MarkdownConverter;
+/**
+ * Convert possibly-HTML content to Markdown. If it doesn't look like HTML,
+ * returns the original text.
+ * @param {string} content
+ * @returns {string}
+ */
+export function toMarkdownIfHtml(content) {
+  if (!content) return '';
+  if (typeof content !== 'string') return String(content);
+  // Heuristic: if it contains tags like <p>, <div>, <h1>, <ul>, <pre>, <code>, <br>
+  if (/[<][a-zA-Z][^>]*>/.test(content)) {
+    return htmlToMarkdown(content);
+  }
+  return content;
+}
 
-// CommonJS compatibility for testing
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = MarkdownConverter;
-  module.exports.default = MarkdownConverter;
+/**
+ * Generate markdown content with metadata for AI news extraction feature
+ * @param {Object} messageData - Message data from API
+ * @param {Object} specialContent - Special content extracted from HTML
+ * @param {Object} extractionMetadata - Extraction metadata
+ * @returns {string} - Formatted markdown with frontmatter
+ */
+export function generateNewsExtractionMarkdown(messageData, specialContent, extractionMetadata) {
+  try {
+    const now = new Date().toISOString();
+    const renderCount = extractionMetadata.render_count || 'unknown';
+    
+    // Generate frontmatter metadata
+    const frontmatter = [
+      '---',
+      'source: claude.ai',
+      `extracted_at: ${now}`,
+      `render_count: ${renderCount}`,
+      `message_index: ${extractionMetadata.message_index || 0}`,
+      `extraction_type: ${extractionMetadata.extraction_type || 'full_message'}`,
+      `conversation_title: "${messageData.title || 'Claude Chat'}"`,
+    ];
+    
+    // Add special content flags
+    if (specialContent) {
+      if (specialContent.codeBlocks && specialContent.codeBlocks.length > 0) {
+        frontmatter.push('has_code_blocks: true');
+      }
+      if (specialContent.artifacts && specialContent.artifacts.length > 0) {
+        frontmatter.push('has_artifacts: true');
+      }
+      if (specialContent.thinking) {
+        frontmatter.push('has_thinking: true');
+      }
+      
+      const elementsExtracted = [];
+      if (specialContent.text) elementsExtracted.push('text_content');
+      if (specialContent.codeBlocks.length > 0) elementsExtracted.push('code_blocks');
+      if (specialContent.buttons.length > 0) elementsExtracted.push('save_buttons');
+      if (specialContent.artifacts.length > 0) elementsExtracted.push('artifact_previews');
+      
+      if (elementsExtracted.length > 0) {
+        frontmatter.push('elements_extracted:');
+        elementsExtracted.forEach(element => {
+          frontmatter.push(`  - ${element}`);
+        });
+      }
+    }
+    
+    frontmatter.push('---');
+    
+    // Generate main content
+    const contentSections = [];
+    
+    // Title
+    contentSections.push(`# Claude Chat - ${messageData.title || 'Extracted Content'}`);
+    contentSections.push('');
+    
+    // User/Assistant distinction
+    if (messageData.role === 'user') {
+      contentSections.push('## ユーザー');
+    } else {
+      contentSections.push('## アシスタント');
+    }
+    
+    // Main text content
+    const mainContent = toMarkdownIfHtml(messageData.content);
+    if (mainContent) {
+      contentSections.push(mainContent);
+      contentSections.push('');
+    }
+    
+    // Special content sections
+    if (specialContent) {
+      // Code blocks
+      if (specialContent.codeBlocks && specialContent.codeBlocks.length > 0) {
+        specialContent.codeBlocks.forEach((codeBlock, index) => {
+          if (codeBlock.content) {
+            contentSections.push(`\`\`\`${codeBlock.language || 'text'}`);
+            contentSections.push(codeBlock.content);
+            contentSections.push('```');
+            contentSections.push('');
+          }
+        });
+      }
+      
+      // Artifacts
+      if (specialContent.artifacts && specialContent.artifacts.length > 0) {
+        contentSections.push('### アーティファクト');
+        specialContent.artifacts.forEach((artifact, index) => {
+          if (artifact.title) {
+            contentSections.push(`#### ${artifact.title}`);
+          }
+          if (artifact.content) {
+            contentSections.push(toMarkdownIfHtml(artifact.content));
+            contentSections.push('');
+          }
+        });
+      }
+      
+      // Thinking content (if present)
+      if (specialContent.thinking) {
+        contentSections.push('### 思考プロセス');
+        contentSections.push(toMarkdownIfHtml(specialContent.thinking));
+        contentSections.push('');
+      }
+    }
+    
+    // Combine frontmatter and content
+    return [
+      ...frontmatter,
+      '',
+      ...contentSections
+    ].join('\n');
+    
+  } catch (error) {
+    console.error('News extraction markdown generation failed:', error);
+    // Fallback to simple format
+    const title = messageData?.title || 'Extracted Content';
+    const content = messageData?.content || '';
+    return `# Claude Chat - ${title}\n\n${toMarkdownIfHtml(content)}`;
+  }
 }

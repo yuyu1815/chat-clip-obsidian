@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "ChatVault Clip — AI Chat to Obsidian",
+  "name": "Chat Clip Obsidian — AIチャットをObsidianへ",
   "version": "0.1.0",
-  "description": "Save AI chat conversations from ChatGPT, Claude and more to your Obsidian vault.",
+  "description": "Save AI chat conversations from ChatGPT, Claude, and Google Gemini directly to your Obsidian vault.",
   "action": {
     "default_icon": "logo48.png",
     "default_popup": "popup.html"
@@ -11,15 +11,38 @@
     "service_worker": "background.js"
   },
   "options_page": "options.html",
-  "permissions": ["activeTab", "storage", "clipboardWrite", "contextMenus", "downloads", "notifications"],
+  "permissions": ["activeTab", "storage", "clipboardWrite", "contextMenus", "downloads", "notifications", "cookies"],
   "host_permissions": [
     "https://chat.openai.com/*",
     "https://chatgpt.com/*",
-    "https://claude.ai/*"
+    "https://claude.ai/*",
+    "https://gemini.google.com/*",
+    "https://aistudio.google.com/*",
+    "https://notebooklm.google.com/*"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "contentScript.css",
+        "workers/*.js",
+        "locales/**/*.json",
+        "i18n/**/*.json",
+        "logo48.png",
+        "logo128.png"
+      ],
+      "matches": [
+        "https://chat.openai.com/*",
+        "https://chatgpt.com/*",
+        "https://claude.ai/*",
+        "https://gemini.google.com/*",
+        "https://aistudio.google.com/*",
+        "https://notebooklm.google.com/*"
+      ]
+    }
   ],
   "content_scripts": [
     {
-      "matches": ["https://chat.openai.com/*", "https://chatgpt.com/*", "https://claude.ai/*"],
+      "matches": ["https://chat.openai.com/*", "https://chatgpt.com/*", "https://claude.ai/*", "https://gemini.google.com/*", "https://aistudio.google.com/*", "https://notebooklm.google.com/*"],
       "js": ["contentScript.js"],
       "css": ["contentScript.css"],
       "run_at": "document_idle",
