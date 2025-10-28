@@ -138,12 +138,18 @@ function App() {
           setAutoTagging(result.autoTagging);
         }
         // Load save history and theme
-        chrome.storage.local.get(['saveHistory', 'darkMode'], (result) => {
+        chrome.storage.local.get(['saveHistory', 'darkMode', 'chatMode', 'messageCount'], (result) => {
           if (result.saveHistory) {
             setSaveHistory(result.saveHistory.slice(0, 5)); // Keep only last 5
           }
           if (result.darkMode !== undefined) {
             setDarkMode(result.darkMode);
+          }
+          if (result.chatMode) {
+            setMode(result.chatMode);
+          }
+          if (typeof result.messageCount === 'number') {
+            setMessageCount(result.messageCount);
           }
         });
       } catch (error) {
@@ -261,64 +267,22 @@ url: ${pageInfo.url}
   }
 
   const saveNote = async () => {
-    if (!obsidianVault || !chatFolderPath) {
-      chrome.runtime.openOptionsPage();
-      return;
-    }
-
-    // Chat mode save - send message to content script
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        const action = mode === 'single' ? 'saveActive' :
-                      mode === 'selection' ? 'saveSelected' :
-                      mode === 'recent' ? 'saveLastN' :
-                      mode === 'full' ? 'saveAll' : null;
-
-        if (action) {
-          chrome.tabs.sendMessage(tabs[0].id, {
-            action: action,
-            count: mode === 'recent' ? messageCount : undefined
-          }, (response) => {
-            if (chrome.runtime.lastError) {
-              setNotification({ type: 'error', message: 'Failed to save: ' + chrome.runtime.lastError.message });
-              toast.show('保存に失敗しました: ' + chrome.runtime.lastError.message, 'error');
-              return;
-            }
-
-            if (response && response.success) {
-              // Add to save history
-              const historyItem = {
-                timestamp: new Date().toISOString(),
-                mode: mode,
-                service: pageInfo.url.includes('chatgpt.com') ? 'ChatGPT' : 'Claude',
-                title: title || `Chat - ${new Date().toLocaleDateString()}`
-              };
-
-              const newHistory = [historyItem, ...saveHistory.slice(0, 4)];
-              setSaveHistory(newHistory);
-              chrome.storage.local.set({ saveHistory: newHistory });
-
-              // Customize message based on method used
-              let message = 'チャットが正常に保存されました！';
-              if (response.method === 'clipboard') {
-                message = 'コンテンツをコピーしました！Obsidianを開いています...';
-                // Show extended message
-                if (response.message) {
-                  alert(response.message);
-                }
-              }
-
-              setNotification({ type: 'success', message: message });
-              toast.show(message, 'success');
-
-              setTimeout(() => window.close(), response.method === 'clipboard' ? 2500 : 1500);
-            } else {
-              const msg = response?.userMessage || (response?.error ? '保存に失敗しました: ' + response.error : 'チャットの保存に失敗しました');
-              setNotification({ type: 'error', message: msg });
-              toast.show(msg, 'error');
-            }
-          });
-        }
+    // Save only the popup settings (mode, messageCount) without triggering Obsidian save
+    const data = {
+      chatMode: mode,
+      messageCount: mode === 'recent' ? messageCount : undefined,
+      savedAt: Date.now()
+    };
+    try {
+      chrome.storage.local.set(data, () => {
+        setNotification({ type: 'success', message: '設定を保存しました' });
+        toast.show('設定を保存しました', 'success');
+        setTimeout(() => window.close(), 800);
       });
+    } catch (_) {
+      setNotification({ type: 'error', message: '設定の保存に失敗しました' });
+      toast.show('設定の保存に失敗しました', 'error');
+    }
   };
 
   const handleCancel = () => {

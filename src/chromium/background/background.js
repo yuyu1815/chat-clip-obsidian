@@ -908,8 +908,28 @@ async function handleSaveMultipleMessages(request, sender, sendResponse) {
               message: `${messages.length} messages copied to clipboard!\n\nObsidian should open now. Paste with Ctrl/Cmd+V`,
               filename: filename
             });
-          }).catch((err) => {
-            console.error('[ChatVault Background] ❌ Failed to open Obsidian:', err);
+          }).catch(async (err) => {
+            console.error('[ChatVault Background] ❌ Failed to open Obsidian, trying Downloads API fallback:', err);
+            // Fallback: try saving via Downloads API
+            try {
+              const downloadsFolder = (await getSync(['downloadsFolder'])).downloadsFolder || 'ChatVault';
+              const dlResult = await saveViaDownloadAPI(finalContent, filename, `${downloadsFolder}/${service.toUpperCase()}`);
+              if (dlResult?.success) {
+                notifyBasic({ message: `Saved to Downloads: ${filename}` });
+                sendResponse({
+                  success: true,
+                  method: 'downloads',
+                  message: `Saved to Downloads folder: ${downloadsFolder}/${service.toUpperCase()}/${filename}`,
+                  filename: filename,
+                  downloadId: dlResult.downloadId,
+                  path: `${downloadsFolder}/${service.toUpperCase()}/${filename}`
+                });
+                return;
+              }
+            } catch (e2) {
+              console.error('[ChatVault Background] ❌ Downloads API fallback failed:', e2);
+            }
+            // If all else fails, return original error
             sendResponse({ success: false, error: 'Failed to open Obsidian: ' + (err.message || err) });
           });
         }
@@ -924,8 +944,28 @@ async function handleSaveMultipleMessages(request, sender, sendResponse) {
             filename: filename
           });
         })
-        .catch((err) => {
-          console.error('[ChatVault Background] ❌ Failed to open Obsidian:', err);
+        .catch(async (err) => {
+          console.error('[ChatVault Background] ❌ Failed to open Obsidian via URI, trying Downloads API fallback:', err);
+          // Fallback: try saving via Downloads API
+          try {
+            const downloadsFolder = (await getSync(['downloadsFolder'])).downloadsFolder || 'ChatVault';
+            const dlResult = await saveViaDownloadAPI(finalContent, filename, `${downloadsFolder}/${service.toUpperCase()}`);
+            if (dlResult?.success) {
+              notifyBasic({ message: `Saved to Downloads: ${filename}` });
+              sendResponse({
+                success: true,
+                method: 'downloads',
+                message: `Saved to Downloads folder: ${downloadsFolder}/${service.toUpperCase()}/${filename}`,
+                filename: filename,
+                downloadId: dlResult.downloadId,
+                path: `${downloadsFolder}/${service.toUpperCase()}/${filename}`
+              });
+              return;
+            }
+          } catch (e2) {
+            console.error('[ChatVault Background] ❌ Downloads API fallback failed:', e2);
+          }
+          // If all else fails, return original error
           sendResponse({ success: false, error: 'Failed to open Obsidian: ' + (err.message || err) });
         });
     }
