@@ -138,18 +138,12 @@ function App() {
           setAutoTagging(result.autoTagging);
         }
         // Load save history and theme
-        chrome.storage.local.get(['saveHistory', 'darkMode', 'chatMode', 'messageCount'], (result) => {
+        chrome.storage.local.get(['saveHistory', 'darkMode'], (result) => {
           if (result.saveHistory) {
             setSaveHistory(result.saveHistory.slice(0, 5)); // Keep only last 5
           }
           if (result.darkMode !== undefined) {
             setDarkMode(result.darkMode);
-          }
-          if (result.chatMode) {
-            setMode(result.chatMode);
-          }
-          if (typeof result.messageCount === 'number') {
-            setMessageCount(result.messageCount);
           }
         });
       } catch (error) {
